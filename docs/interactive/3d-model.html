@@ -1,0 +1,632 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Solar Tracker Rig</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: a workbench — 3D rig fills the left stage, the ESP32's dashboard and build sheet run down the right rail */
+:root{
+  --bg:#e8edf0; --surface:#f8fafb; --fg:#15222c; --muted:#5a6a75; --line:#cbd5db;
+  --accent:#d98a10; --on-accent:#1d1404; --stage:#dde5ea;
+  --ok:#2c8553; --warn:#b8730a; --crit:#c0402c; --info:#3a6ca6;
+  --f-display:"Barlow Condensed","Arial Narrow",sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0e161c; --surface:#15212a; --fg:#e2e9ee; --muted:#93a3ae; --line:#283742;
+  --accent:#f2a93b; --stage:#121d25;
+  --ok:#4cc187; --warn:#e9a63a; --crit:#ef6a55; --info:#77a7de; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0e161c; --surface:#15212a; --fg:#e2e9ee; --muted:#93a3ae; --line:#283742;
+  --accent:#f2a93b; --stage:#121d25;
+  --ok:#4cc187; --warn:#e9a63a; --crit:#ef6a55; --info:#77a7de; color-scheme:dark}
+
+html,body{height:100%}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:14px;line-height:1.5;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.app{height:100%;display:grid;grid-template-rows:auto minmax(0,1fr);gap:12px;padding-block:14px;box-sizing:border-box}
+.top{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 18px}
+.top h1{font:700 28px/1 var(--f-display);letter-spacing:.01em;margin:0;text-transform:uppercase}
+.top p{margin:0;color:var(--muted);max-width:70ch}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 370px;gap:14px;min-height:0}
+
+.stage{position:relative;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--stage);min-height:0}
+.stage canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
+#labels{position:absolute;inset:0;pointer-events:none}
+.tag{position:absolute;left:0;top:0;pointer-events:auto;font:600 12px/1 var(--f-display);letter-spacing:.06em;text-transform:uppercase;
+  background:var(--surface);color:var(--fg);border:1px solid var(--line);padding:5px 8px;border-radius:4px;cursor:pointer;white-space:nowrap}
+.tag::after{content:"";position:absolute;left:50%;top:100%;width:1px;height:12px;background:var(--muted)}
+.tag.sel{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.tag.compass{background:none;border:0;color:var(--muted);font-size:15px;cursor:default;pointer-events:none}
+.tag.compass::after{display:none}
+.tag:focus-visible,.btn:focus-visible,.parts tr:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.stage-tools{position:absolute;top:10px;left:10px;display:flex;gap:6px;flex-wrap:wrap}
+.hint{position:absolute;right:12px;top:14px;color:var(--muted);font-size:12px}
+.info{position:absolute;left:10px;bottom:10px;max-width:min(340px,calc(100% - 20px));background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:12px 14px;box-shadow:0 6px 24px rgba(0,0,0,.12)}
+.info h3{font:700 18px/1.1 var(--f-display);text-transform:uppercase;margin:0 0 2px;letter-spacing:.02em}
+.info .cost{font-family:var(--f-mono);font-size:12px;color:var(--accent)}
+.info p{margin:6px 0 0;font-size:13px}
+.info .x{position:absolute;right:6px;top:6px;border:0;background:none;color:var(--muted);font-size:18px;cursor:pointer;padding:2px 6px}
+
+.btn{font:500 13px/1 var(--f-body);border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:6px;padding:8px 11px;cursor:pointer}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:600}
+.btn[aria-pressed="true"]{border-color:var(--accent);color:var(--accent)}
+.btn:disabled{opacity:.5;cursor:default}
+
+.side{overflow:auto;min-height:0;display:flex;flex-direction:column;gap:12px}
+.sec{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:10px}
+.sec h2{font:700 15px/1 var(--f-display);text-transform:uppercase;letter-spacing:.08em;margin:0;color:var(--muted)}
+.field{display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center}
+.field label{font-weight:500}
+.field output{font-family:var(--f-mono);font-size:13px;font-variant-numeric:tabular-nums}
+.field input[type=range]{grid-column:1/-1;width:100%;accent-color:var(--accent)}
+select{font:inherit;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;width:100%}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.check{display:flex;gap:6px;align-items:center;font-size:13px}
+.check input{accent-color:var(--accent)}
+
+.tele{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.tele div{background:var(--surface);padding:8px 9px;min-width:0}
+.tele span{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.tele b{font:500 17px/1.2 var(--f-mono);font-variant-numeric:tabular-nums}
+.tele small{font:400 11px var(--f-mono);color:var(--muted)}
+.diag{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.diag li{border-left:3px solid var(--sev);padding:5px 0 5px 9px;background:color-mix(in srgb,var(--sev) 8%,transparent);border-radius:0 4px 4px 0}
+.diag strong{display:block;font-weight:600;font-size:13px}
+.diag p{margin:1px 0 0;font-size:12.5px;color:var(--muted)}
+.diag code{font:400 11px var(--f-mono);color:var(--muted)}
+.log{margin:0;padding:0;list-style:none;font:400 12px/1.6 var(--f-mono);color:var(--muted)}
+.log:empty::before{content:"No events yet."}
+
+.parts,.pins{width:100%;border-collapse:collapse;font-size:13px}
+.parts td,.pins td,.pins th{padding:5px 4px;border-top:1px solid var(--line);vertical-align:top}
+.pins th{text-align:left;font-weight:500;color:var(--muted);font-size:12px;border-top:0}
+.parts td:last-child{text-align:right;font-family:var(--f-mono);font-size:12px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.parts tr[data-part]{cursor:pointer}
+.parts tr[data-part]:hover td{color:var(--accent)}
+.parts tr.sel td{color:var(--accent);font-weight:500}
+.parts tr.opt td{color:var(--muted)}
+.parts tfoot td{font-weight:600;border-top:2px solid var(--fg)}
+.pins td:first-child{font-family:var(--f-mono);font-size:12px;white-space:nowrap}
+.notes{margin:0;padding-left:18px;font-size:13px;display:flex;flex-direction:column;gap:6px}
+
+@media (max-width:880px){
+  .app{height:auto}
+  .layout{grid-template-columns:1fr}
+  .stage{height:62vh;min-height:360px}
+  .side{overflow:visible}
+  .hint{display:none}
+}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto}}
+</style>
+<style>body{margin:0}[hidden]{display:none!important}</style>
+</head>
+<body>
+
+<div class="app">
+  <header class="top">
+    <h1>Solar Tracker Rig</h1>
+    <p>Single-axis tracker with servo wiper, INA219 power sensing and rule-based fault checks, all on one ESP32.</p>
+  </header>
+  <main class="layout">
+    <section class="stage" id="stage">
+      <canvas id="c" aria-label="3D model of the solar tracker prototype"></canvas>
+      <div id="labels"></div>
+      <div class="stage-tools">
+        <button class="btn" id="btnLabels" aria-pressed="true">Labels</button>
+        <button class="btn" id="btnReset">Reset view</button>
+      </div>
+      <div class="hint">Drag to orbit · scroll to zoom · tap a part</div>
+      <div class="info" id="info" hidden>
+        <button class="x" id="infoClose" aria-label="Close">×</button>
+        <h3 id="infoName"></h3>
+        <div class="cost" id="infoCost"></div>
+        <p id="infoRole"></p>
+      </div>
+    </section>
+
+    <aside class="side">
+      <section class="sec">
+        <h2>Conditions</h2>
+        <div class="field"><label for="hour">Time of day</label><output id="hourOut"></output>
+          <input type="range" id="hour" min="5.5" max="18.5" step="0.05" value="10.5"></div>
+        <div class="field"><label for="dust">Dust on panel</label><output id="dustOut"></output>
+          <input type="range" id="dust" min="0" max="100" step="1" value="35"></div>
+        <label for="fault" style="font-weight:500">Inject a fault</label>
+        <select id="fault">
+          <option value="none">No fault</option>
+          <option value="ldr">East LDR covered (leaf or bird dropping)</option>
+          <option value="open">Loose panel wire (open circuit)</option>
+          <option value="heat">Panel overheating (no airflow)</option>
+          <option value="stall">Tilt servo stalled</option>
+        </select>
+        <div class="row">
+          <button class="btn" id="btnPlay" aria-pressed="false">Play the day</button>
+          <button class="btn primary" id="btnClean">Run cleaning cycle</button>
+        </div>
+        <label class="check"><input type="checkbox" id="autoClean"> Auto-clean when dust loss is detected</label>
+      </section>
+
+      <section class="sec">
+        <h2>Dashboard (served by ESP32)</h2>
+        <div class="tele">
+          <div><span>Voltage</span><b id="tV">–</b></div>
+          <div><span>Current</span><b id="tI">–</b></div>
+          <div><span>Power</span><b id="tP">–</b></div>
+          <div><span>Panel temp</span><b id="tT">–</b></div>
+          <div><span>Tilt</span><b id="tA">–</b></div>
+          <div><span>LDR E / W</span><b id="tL">–</b></div>
+        </div>
+        <ul class="diag" id="diag"></ul>
+        <ul class="log" id="log"></ul>
+      </section>
+
+      <section class="sec">
+        <h2>Parts and cost</h2>
+        <table class="parts" id="parts"><tbody></tbody><tfoot></tfoot></table>
+      </section>
+
+      <section class="sec">
+        <h2>ESP32 pin map</h2>
+        <table class="pins">
+          <thead><tr><th>Pin</th><th>Connects to</th></tr></thead>
+          <tbody>
+            <tr><td>GPIO 18</td><td>Tilt servo signal (LEDC PWM, 50 Hz)</td></tr>
+            <tr><td>GPIO 19</td><td>Wiper servo signal</td></tr>
+            <tr><td>GPIO 21 / 22</td><td>INA219 SDA / SCL, address 0x40</td></tr>
+            <tr><td>GPIO 34</td><td>East LDR divider (10 kΩ)</td></tr>
+            <tr><td>GPIO 35</td><td>West LDR divider (10 kΩ)</td></tr>
+            <tr><td>GPIO 4</td><td>DS18B20 data, 4.7 kΩ pull-up to 3.3 V</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="sec">
+        <h2>Build notes</h2>
+        <ol class="notes">
+          <li>Run the axle through the panel's centre of mass. A small servo then only fights friction and wind, not the panel's weight.</li>
+          <li>Power both servos from the 5 V buck output, not the ESP32's 3.3 V pin. Add a 470 µF capacitor across the servo rail and share ground with the ESP32.</li>
+          <li>Keep the LDRs on GPIO 34/35. Those are ADC1 pins; ADC2 stops working once Wi-Fi is on.</li>
+          <li>Wire the INA219 high-side: panel + to VIN+, VIN− to the load. Add the fuse before it.</li>
+          <li>Tilt travel is limited to ±60°. Beyond that the panel waits at the limit, which the diagnostics report as normal.</li>
+          <li>The arc wiper clears the centre of the panel; the far corners need a longer blade or a linear rail later.</li>
+        </ol>
+      </section>
+    </aside>
+  </main>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(function(){
+const $ = s => document.querySelector(s);
+const D = Math.PI/180;
+const clamp = (v,a,b)=>Math.min(b,Math.max(a,v));
+
+/* ---------- parts data ---------- */
+const PARTS = {
+  panel:{name:"Solar panel, 5–10 W",cost:"₹300–500",role:"The generator under test. Mounted on the tilt axle, wired through the fuse and INA219 to a small resistive load."},
+  tilt:{name:"Tilt servo",cost:"₹100–180",role:"Turns the axle east–west. The ESP32 nudges it 1.2° per step whenever the two LDRs disagree by more than 4%."},
+  ldr:{name:"LDR pair and shade wall",cost:"₹50–100",role:"Two LDRs split by a black wall. When the sun is off-axis the wall shades one side, and the ESP32 turns toward the brighter one."},
+  temp:{name:"DS18B20 probe",cost:"₹100–160",role:"Taped to the back of the panel with aluminium tape. Used for the overheating rule and to correct expected power for temperature."},
+  wiper:{name:"Wiper servo and blade",cost:"₹100–180 servo",role:"Second servo on the panel edge sweeps a rubber blade across the glass. Runs on demand or when the soiling rule fires."},
+  esp32:{name:"ESP32 dev board",cost:"₹300–450",role:"Reads every sensor, drives both servos, runs the rule-based diagnostics and serves the Wi-Fi dashboard."},
+  ina219:{name:"INA219 power sensor",cost:"₹90–150",role:"Measures panel voltage and current on the high side over I²C. Power and the expected-vs-actual check come from this."},
+  breadboard:{name:"Breadboard, wires, connectors",cost:"₹150–250",role:"Holds the ESP32 and INA219 for the first prototype. Move to perfboard once the wiring is final."},
+  frame:{name:"DIY frame, rails, axle",cost:"₹250–400",role:"Plywood base, two aluminium uprights with bearing blocks, a steel axle and two rails clamping the panel."},
+  power:{name:"Power supply and protection",cost:"₹200–350",role:"DC jack, inline fuse, 5 V buck converter for servos and ESP32, 470 µF rail capacitor and the dummy load resistor."}
+};
+const COST_ROWS = [
+  ["esp32","1 × ESP32 development board","₹300–450"],
+  ["ina219","INA219 power sensor","₹90–150"],
+  ["ldr","2 × LDRs, resistors, wiring","₹50–100"],
+  ["temp","DS18B20 temperature probe","₹100–160"],
+  ["panel","Solar panel, 5–10 W","₹300–500"],
+  ["tilt","Servo for panel tilt","₹100–180"],
+  ["wiper","Servo for wiper","₹100–180"],
+  [null,"DC motor and driver (optional, not fitted)","₹150–250",true],
+  ["breadboard","Breadboard, wires, connectors","₹150–250"],
+  ["frame","DIY frame, rails, wiper blade","₹250–400"],
+  ["power","Power supply and protection","₹200–350"],
+  [null,"Miscellaneous and shipping","₹300–500"]
+];
+
+/* ---------- renderer / scene ---------- */
+const stage = $("#stage"), canvas = $("#c");
+const renderer = new THREE.WebGLRenderer({canvas,antialias:true});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputEncoding = THREE.sRGBEncoding;
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(36,1,1,2000);
+const HOME = {pos:new THREE.Vector3(70,52,66), target:new THREE.Vector3(0,13,-6)};
+camera.position.copy(HOME.pos);
+const controls = new THREE.OrbitControls(camera,canvas);
+controls.target.copy(HOME.target);
+controls.enableDamping = true; controls.dampingFactor = .08;
+controls.maxPolarAngle = Math.PI*.49; controls.minDistance = 25; controls.maxDistance = 240;
+
+const hemi = new THREE.HemisphereLight(0xe4ecf2,0x6b5a45,.55); scene.add(hemi);
+const sunLight = new THREE.DirectionalLight(0xfff1d4,1.4);
+sunLight.castShadow = true; sunLight.shadow.mapSize.set(2048,2048);
+Object.assign(sunLight.shadow.camera,{left:-60,right:60,top:60,bottom:-60,near:10,far:320});
+sunLight.shadow.bias = -0.0006;
+scene.add(sunLight); scene.add(sunLight.target);
+const fill = new THREE.DirectionalLight(0xcfe0ff,.25); fill.position.set(-60,40,80); scene.add(fill);
+const sunMesh = new THREE.Mesh(new THREE.SphereGeometry(4.5,24,16),new THREE.MeshBasicMaterial({color:0xffc84a}));
+scene.add(sunMesh);
+
+const ground = new THREE.Mesh(new THREE.CircleGeometry(170,64),new THREE.MeshStandardMaterial({color:0xcfd8dd,roughness:1}));
+ground.rotation.x = -Math.PI/2; ground.receiveShadow = true; scene.add(ground);
+const grid = new THREE.GridHelper(240,48,0x000000,0x000000);
+grid.material.transparent = true; grid.material.opacity = .07; grid.position.y = .02; scene.add(grid);
+
+// sun path
+const SUN_R = 115, SUN_Z = -35;
+const arcPts = [];
+for(let h=6;h<=18.001;h+=.25){const p=(h-6)/12*Math.PI;arcPts.push(new THREE.Vector3(SUN_R*Math.cos(p),SUN_R*Math.sin(p),SUN_Z));}
+const arc = new THREE.Line(new THREE.BufferGeometry().setFromPoints(arcPts),new THREE.LineDashedMaterial({color:0x888888,dashSize:3,gapSize:3,transparent:true,opacity:.55}));
+arc.computeLineDistances(); scene.add(arc);
+
+/* ---------- part registry ---------- */
+const reg = {};
+const R = id => reg[id] || (reg[id]={mats:[]});
+function mat(part,opts){const m=new THREE.MeshStandardMaterial(Object.assign({roughness:.6},opts));R(part).mats.push(m);return m;}
+function add(geo,m,part,parent,x,y,z){const o=new THREE.Mesh(geo,m);o.position.set(x,y,z);o.castShadow=o.receiveShadow=true;o.userData.part=part;parent.add(o);return o;}
+const B=(w,h,d)=>new THREE.BoxGeometry(w,h,d);
+const C=(r,h,s=20)=>new THREE.CylinderGeometry(r,r,h,s);
+function tube(points,radius,m,part,parent){
+  const curve=new THREE.CatmullRomCurve3(points.map(p=>new THREE.Vector3(...p)));
+  return add(new THREE.TubeGeometry(curve,64,radius,8,false),m,part,parent,0,0,0);
+}
+
+const world = new THREE.Group(); scene.add(world);
+
+/* frame */
+const ply = mat("frame",{color:0xc79d66,roughness:.85});
+const alu = mat("frame",{color:0xb7c0c7,metalness:.55,roughness:.35});
+const dark = mat("frame",{color:0x3b4249,roughness:.5});
+add(B(40,1.8,84),ply,"frame",world,0,.9,-6);
+[-21.5,21.5].forEach(z=>{
+  add(B(2,21.4,2),alu,"frame",world,0,1.8+10.7,z);
+  add(B(6,.6,4),alu,"frame",world,0,2.1,z);
+  const b1=add(B(1.1,13,1.1),alu,"frame",world,-4.3,7.7,z); b1.rotation.z=-.55;
+  const b2=add(B(1.1,13,1.1),alu,"frame",world,4.3,7.7,z); b2.rotation.z=.55;
+  add(B(2.8,2.8,2.2),dark,"frame",world,0,24,z);
+});
+
+const AXLE_Y = 24;
+const tiltPivot = new THREE.Group(); tiltPivot.position.set(0,AXLE_Y,0); world.add(tiltPivot);
+const steel = mat("frame",{color:0x9aa3aa,metalness:.8,roughness:.3});
+const axle = add(C(.45,48),steel,"frame",tiltPivot,0,0,0); axle.rotation.x = Math.PI/2;
+[-10,10].forEach(z=>{
+  add(B(23,.7,1.6),alu,"frame",tiltPivot,0,.6,z);
+  add(B(2.2,1.6,2.2),dark,"frame",tiltPivot,0,.1,z);
+});
+
+/* panel */
+const pFrame = mat("panel",{color:0xc9d0d5,metalness:.6,roughness:.3});
+add(B(25.6,1,34.6),pFrame,"panel",tiltPivot,0,1.4,0);
+const cellCanvas = document.createElement("canvas"); cellCanvas.width=256; cellCanvas.height=348;
+(function(){const g=cellCanvas.getContext("2d");g.fillStyle="#dfe4ea";g.fillRect(0,0,256,348);
+  const cols=4,rows=9,pad=4,cw=(256-pad*(cols+1))/cols,ch=(348-pad*(rows+1))/rows;
+  for(let i=0;i<cols;i++)for(let j=0;j<rows;j++){const x=pad+i*(cw+pad),y=pad+j*(ch+pad);
+    const gr=g.createLinearGradient(x,y,x+cw,y+ch);gr.addColorStop(0,"#1f3a73");gr.addColorStop(1,"#142a57");
+    g.fillStyle=gr;g.fillRect(x,y,cw,ch);g.fillStyle="rgba(210,220,235,.55)";
+    g.fillRect(x+cw*.3,y,1.5,ch);g.fillRect(x+cw*.7,y,1.5,ch);
+    g.strokeStyle="rgba(120,150,200,.25)";for(let k=1;k<6;k++){g.beginPath();g.moveTo(x,y+ch*k/6);g.lineTo(x+cw,y+ch*k/6);g.stroke();}}
+})();
+const cellTex = new THREE.CanvasTexture(cellCanvas); cellTex.encoding = THREE.sRGBEncoding; cellTex.anisotropy = 4;
+const cells = add(new THREE.PlaneGeometry(25,34),mat("panel",{map:cellTex,roughness:.25,metalness:.2}),"panel",tiltPivot,0,1.91,0);
+cells.rotation.x = -Math.PI/2;
+const dustMat = new THREE.MeshStandardMaterial({color:0x9b8257,roughness:1,transparent:true,opacity:.25,depthWrite:false});
+R("panel").mats.push(dustMat);
+const dustPlane = add(new THREE.PlaneGeometry(25,34),dustMat,"panel",tiltPivot,0,1.94,0);
+dustPlane.rotation.x = -Math.PI/2; dustPlane.castShadow = false;
+add(B(4,.8,3),mat("panel",{color:0x1c1f22}),"panel",tiltPivot,0,.5,-13.5);
+
+/* DS18B20 */
+const tempM = mat("temp",{color:0xb9c2c8,metalness:.8,roughness:.25});
+const probe = add(C(.3,5),tempM,"temp",tiltPivot,5,.62,4); probe.rotation.z = Math.PI/2;
+add(B(6.4,.06,1.6),mat("temp",{color:0xd8dde0,metalness:.7,roughness:.4}),"temp",tiltPivot,5,.88,4);
+const cableBlack = mat("temp",{color:0x16181a,roughness:.7});
+tube([[2.5,.62,4],[1.2,.2,5],[.2,-.55,6.5],[0,-.6,12],[0,-.6,20.5]],.14,cableBlack,"temp",tiltPivot);
+
+/* LDR bracket */
+const ldrPcb = mat("ldr",{color:0x22603f,roughness:.6});
+const ldrWall = mat("ldr",{color:0x111315,roughness:.8});
+const ldrHead = mat("ldr",{color:0xd6853a,roughness:.4});
+add(B(8,.3,3),ldrPcb,"ldr",tiltPivot,0,1.75,19);
+add(B(.25,3.4,3),ldrWall,"ldr",tiltPivot,0,3.6,19);
+[-1.9,1.9].forEach(x=>{add(C(.55,.35),ldrHead,"ldr",tiltPivot,x,2.08,19);});
+add(B(1.4,.5,1.4),ldrPcb,"ldr",tiltPivot,3.2,1.55,17.6);
+
+/* tilt servo */
+const servoBlue = mat("tilt",{color:0x2f62b8,roughness:.45});
+const hornW = mat("tilt",{color:0xf1f1ee,roughness:.5});
+add(B(2.3,2.9,1.3),servoBlue,"tilt",world,.55,AXLE_Y,23.6);
+add(B(3.3,.25,1.3),servoBlue,"tilt",world,.55,AXLE_Y+.6,23.6);
+const horn = add(C(.95,.35),hornW,"tilt",tiltPivot,0,0,22.8); horn.rotation.x = Math.PI/2;
+add(B(.6,3,.3),hornW,"tilt",tiltPivot,0,.9,22.8);
+
+/* wiper */
+const wipBlue = mat("wiper",{color:0x2f62b8,roughness:.45});
+const wipArm = mat("wiper",{color:0x2b2f33,metalness:.4,roughness:.4});
+const rubber = mat("wiper",{color:0x0d0e0f,roughness:.9});
+add(B(2.3,2.9,1.3),wipBlue,"wiper",tiltPivot,-14.2,1.1,0);
+add(B(1.6,.4,2),wipArm,"wiper",tiltPivot,-13.2,1.3,0);
+const wiperPivot = new THREE.Group(); wiperPivot.position.set(-14,2.45,0); tiltPivot.add(wiperPivot);
+add(C(.55,.5),mat("wiper",{color:0xf1f1ee}),"wiper",wiperPivot,0,0,0);
+add(B(26,.22,.6),wipArm,"wiper",wiperPivot,13,.05,0);
+add(B(23.5,.45,.32),rubber,"wiper",wiperPivot,14.2,-.3,0);
+tube([[-14.2,-.3,.4],[-9,-.55,1.2],[-2,-.65,2],[0,-.65,6],[0,-.65,20.5]],.12,mat("wiper",{color:0x7a4a20}),"wiper",tiltPivot);
+const PARK = 88*D;
+wiperPivot.rotation.y = PARK;
+
+/* electronics enclosure */
+const BOX_Z = -36, FLOOR = 1.8;
+const encl = mat("power",{color:0x8e979e,roughness:.7});
+add(B(22,.4,13),encl,"power",world,0,FLOOR+.2,BOX_Z);
+add(B(22,6.6,.4),encl,"power",world,0,FLOOR+3.7,BOX_Z-6.3);
+add(B(22,6.6,.4),encl,"power",world,0,FLOOR+3.7,BOX_Z+6.3);
+add(B(.4,6.6,13),encl,"power",world,-10.8,FLOOR+3.7,BOX_Z);
+add(B(.4,6.6,13),encl,"power",world,10.8,FLOOR+3.7,BOX_Z);
+const lid = add(B(22,.3,13),new THREE.MeshStandardMaterial({color:0xcfe6f2,transparent:true,opacity:.18,roughness:.1,depthWrite:false}),"power",world,0,FLOOR+7.15,BOX_Z);
+lid.castShadow = false;
+const F = FLOOR+.4;
+// breadboard
+const bbM = mat("breadboard",{color:0xeeeee8,roughness:.8});
+add(B(16.5,.85,5.4),bbM,"breadboard",world,-1.6,F+.43,BOX_Z-2.6);
+const bbLine = mat("breadboard",{color:0xc23b3b});
+add(B(16,.02,.08),bbLine,"breadboard",world,-1.6,F+.87,BOX_Z-5);
+add(B(16,.02,.08),mat("breadboard",{color:0x2e5fa8}),"breadboard",world,-1.6,F+.87,BOX_Z-.2);
+// esp32
+const pcbBlack = mat("esp32",{color:0x1b1d1f,roughness:.5});
+add(B(5.2,.16,2.8),pcbBlack,"esp32",world,-4.6,F+1.6,BOX_Z-2.6);
+add(B(4.6,.7,.25),pcbBlack,"esp32",world,-4.6,F+1.15,BOX_Z-3.75);
+add(B(4.6,.7,.25),pcbBlack,"esp32",world,-4.6,F+1.15,BOX_Z-1.45);
+add(B(1.8,.35,1.6),mat("esp32",{color:0xc7ccd0,metalness:.85,roughness:.25}),"esp32",world,-5.8,F+1.85,BOX_Z-2.6);
+add(B(.7,.12,1.7),mat("esp32",{color:0x1e1e1e}),"esp32",world,-7,F+1.73,BOX_Z-2.6);
+add(B(.6,.3,.8),mat("esp32",{color:0xb9bec2,metalness:.8}),"esp32",world,-2.1,F+1.83,BOX_Z-2.6);
+// ina219
+const ina = mat("ina219",{color:0x6a3fa3,roughness:.5});
+add(B(2.4,.16,2),ina,"ina219",world,3.6,F+1.25,BOX_Z-2.6);
+add(B(.8,.6,.8),pcbBlack,"ina219",world,3.6,F+.95,BOX_Z-2.6);
+add(B(1.6,.9,.8),mat("ina219",{color:0x2d8c5a}),"ina219",world,3.6,F+1.78,BOX_Z-1.9);
+// power & protection
+const buck = mat("power",{color:0x274f9e,roughness:.5});
+add(B(4.3,.16,2.1),buck,"power",world,5,F+.9,BOX_Z+3.2);
+add(C(.7,.7),mat("power",{color:0x2a2a2a}),"power",world,4.2,F+1.33,BOX_Z+3.2);
+add(B(.6,.6,.6),mat("power",{color:0x3a6fd8}),"power",world,6.3,F+1.28,BOX_Z+3.6);
+const cap = add(C(.55,1.6),mat("power",{color:0x24308a}),"power",world,1.3,F+.8,BOX_Z+3.2);
+add(B(4.8,.9,.9),mat("power",{color:0xe9e4d8,roughness:.9}),"power",world,-3.2,F+.45,BOX_Z+3.4);
+const fuse = add(C(.45,3),mat("power",{color:0x1a1a1a}),"power",world,-8,F+.45,BOX_Z+3); fuse.rotation.x = Math.PI/2;
+add(B(.6,1.2,1.2),mat("power",{color:0x111111}),"power",world,-11.2,F+2.2,BOX_Z+3.2);
+
+/* static cabling */
+const red = mat("power",{color:0xb3261e,roughness:.6}), blk = mat("power",{color:0x1a1b1c,roughness:.6});
+const sig = mat("breadboard",{color:0xd9a520,roughness:.6}), grn = mat("breadboard",{color:0x2f8f4e,roughness:.6});
+tube([[.7,AXLE_Y-1.6,-20.5],[1.3,14,-20.6],[1.3,3,-20.6],[1.6,2.2,-24],[2,2.2,-28],[2,4,-29.5]],.16,red,"power",world);
+tube([[-.7,AXLE_Y-1.6,-20.5],[-1.3,14,-20.6],[-1.3,3,-20.6],[-1,2.2,-24],[-.5,2.2,-28],[-.5,4,-29.5]],.16,blk,"power",world);
+tube([[-.8,AXLE_Y-1.6,20.5],[-1.4,14,20.6],[-1.4,3,20.6],[-5,2.2,14],[-6,2.2,-20],[-6,2.2,-27],[-6,4,-29.5]],.15,sig,"breadboard",world);
+tube([[.8,AXLE_Y-1.6,20.5],[1.4,14,20.6],[1.4,3,20.6],[-4.4,2.2,14],[-5.4,2.2,-20],[-5.4,2.2,-27],[-5.4,4,-29.5]],.15,grn,"breadboard",world);
+
+/* ---------- labels ---------- */
+const labelsEl = $("#labels");
+const anchors = [
+  ["panel","Solar panel",cells,[6,0,-9]],
+  ["tilt","Tilt servo",world,[.55,AXLE_Y+1.6,23.6]],
+  ["ldr","LDR pair",tiltPivot,[0,5.4,19]],
+  ["temp","DS18B20",tiltPivot,[5,.3,4]],
+  ["wiper","Wiper servo",tiltPivot,[-14.2,2.8,0]],
+  ["esp32","ESP32",world,[-4.6,FLOOR+7.4,BOX_Z-2.6]],
+  ["ina219","INA219",world,[3.6,FLOOR+7.4,BOX_Z-2.6]],
+  ["power","Power & protection",world,[3,FLOOR+7.4,BOX_Z+3.5]],
+  ["frame","DIY frame",world,[0,12,-21.5]]
+].map(([part,text,obj,local])=>{
+  const el=document.createElement("button");el.className="tag";el.type="button";el.textContent=text;el.dataset.part=part;
+  el.addEventListener("click",()=>select(part));labelsEl.appendChild(el);
+  return {el,obj,local:new THREE.Vector3(...local),part};
+});
+// panel cell anchor is in plane-local coords (plane rotated), so use tiltPivot instead
+anchors[0].obj = tiltPivot; anchors[0].local.set(7,2.2,-10);
+[["E",[58,0,0]],["W",[-58,0,0]],["N",[0,0,58]],["S",[0,0,-62]]].forEach(([t,p])=>{
+  const el=document.createElement("div");el.className="tag compass";el.textContent=t;labelsEl.appendChild(el);
+  anchors.push({el,obj:scene,local:new THREE.Vector3(...p),passive:true});
+});
+let showLabels = true;
+const tmp = new THREE.Vector3();
+function placeLabels(w,h){
+  for(const a of anchors){
+    if(!a.passive && !showLabels){a.el.hidden=true;continue;}
+    tmp.copy(a.local); a.obj.localToWorld(tmp); tmp.project(camera);
+    const vis = tmp.z<1 && Math.abs(tmp.x)<1.1 && Math.abs(tmp.y)<1.1;
+    a.el.hidden = !vis; if(!vis) continue;
+    const x=(tmp.x*.5+.5)*w, y=(-tmp.y*.5+.5)*h;
+    a.el.style.transform = a.passive ? `translate(${x}px,${y}px) translate(-50%,-50%)` : `translate(${x}px,${y}px) translate(-50%,calc(-100% - 12px))`;
+  }
+}
+
+/* ---------- selection ---------- */
+let selected = null;
+const accentCol = new THREE.Color();
+function select(part){
+  selected = (part===selected)?null:part;
+  for(const id in reg) reg[id].mats.forEach(m=>{ if(m.emissive){ m.emissive.copy(id===selected?accentCol:new THREE.Color(0)); m.emissiveIntensity = id===selected?.55:1; }});
+  anchors.forEach(a=>a.part&&a.el.classList.toggle("sel",a.part===selected));
+  document.querySelectorAll(".parts tr[data-part]").forEach(r=>r.classList.toggle("sel",r.dataset.part===selected));
+  const info=$("#info");
+  if(!selected){info.hidden=true;return;}
+  const p=PARTS[selected];$("#infoName").textContent=p.name;$("#infoCost").textContent=p.cost;$("#infoRole").textContent=p.role;info.hidden=false;
+}
+$("#infoClose").addEventListener("click",()=>select(selected));
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(); let down=null;
+canvas.addEventListener("pointerdown",e=>{down=[e.clientX,e.clientY];});
+canvas.addEventListener("pointerup",e=>{
+  if(!down||Math.hypot(e.clientX-down[0],e.clientY-down[1])>5)return;
+  const r=canvas.getBoundingClientRect();ndc.set((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1);
+  ray.setFromCamera(ndc,camera);
+  const hit=ray.intersectObjects(world.children,true).find(h=>h.object.userData.part && h.object!==lid);
+  if(hit) select(hit.object.userData.part===selected?selected:hit.object.userData.part); else if(selected) select(selected);
+});
+
+/* ---------- parts table ---------- */
+(function(){
+  const tb=$("#parts tbody");
+  COST_ROWS.forEach(([part,label,cost,opt])=>{
+    const tr=document.createElement("tr");tr.innerHTML=`<td>${label}</td><td>${cost}</td>`;
+    if(part){tr.dataset.part=part;tr.tabIndex=0;tr.addEventListener("click",()=>select(part));tr.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();select(part);}});}
+    if(opt)tr.className="opt";tb.appendChild(tr);
+  });
+  $("#parts tfoot").innerHTML=`<tr><td>As modelled (no DC motor)</td><td>₹1,940–3,220</td></tr><tr><td>Full list from your plan</td><td>₹2,090–3,470</td></tr>`;
+})();
+
+/* ---------- theme ---------- */
+function applyTheme(){
+  const cs=getComputedStyle(document.documentElement);
+  const v=n=>cs.getPropertyValue(n).trim();
+  scene.background = new THREE.Color(v("--stage"));
+  const isDark = new THREE.Color(v("--bg")).getHSL({}).l < .3;
+  ground.material.color.set(isDark?0x1a2731:0xcdd6dc);
+  grid.material.color.set(isDark?0xffffff:0x000000); grid.material.opacity = isDark?.05:.07;
+  arc.material.color.set(v("--muted"));
+  accentCol.set(v("--accent"));
+  if(selected){const s=selected;selected=null;select(s);}
+}
+applyTheme();
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change",applyTheme);
+new MutationObserver(applyTheme).observe(document.documentElement,{attributes:true,attributeFilter:["data-theme"]});
+
+/* ---------- simulation ---------- */
+const S = {hour:10.5,dust:.35,fault:"none",tilt:-25*D,playing:false,auto:false,
+  wipe:null,soilTimer:0,stall:0,ctlAcc:0,E:0,W:0,last:{}};
+const LIMIT = 60*D;
+const hourEl=$("#hour"),dustEl=$("#dust");
+const fmtHour=h=>{const m=Math.round(h*60);return String(Math.floor(m/60)).padStart(2,"0")+":"+String(m%60).padStart(2,"0");};
+function syncOutputs(){$("#hourOut").textContent=fmtHour(S.hour);$("#dustOut").textContent=Math.round(S.dust*100)+"%";}
+hourEl.addEventListener("input",()=>{S.hour=+hourEl.value;syncOutputs();});
+dustEl.addEventListener("input",()=>{if(!S.wipe){S.dust=dustEl.value/100;syncOutputs();}});
+$("#fault").addEventListener("change",e=>{S.fault=e.target.value;S.stall=0;log(e.target.value==="none"?"Fault cleared":"Fault injected: "+e.target.selectedOptions[0].text);});
+$("#btnPlay").addEventListener("click",e=>{S.playing=!S.playing;e.currentTarget.setAttribute("aria-pressed",S.playing);e.currentTarget.textContent=S.playing?"Pause":"Play the day";});
+$("#btnClean").addEventListener("click",()=>startWipe("Manual cleaning cycle"));
+$("#autoClean").addEventListener("change",e=>{S.auto=e.target.checked;});
+$("#btnLabels").addEventListener("click",e=>{showLabels=!showLabels;e.currentTarget.setAttribute("aria-pressed",showLabels);});
+$("#btnReset").addEventListener("click",()=>{camera.position.copy(HOME.pos);controls.target.copy(HOME.target);});
+
+const logEl=$("#log");
+function log(msg){const li=document.createElement("li");li.textContent=fmtHour(S.hour)+"  "+msg;logEl.prepend(li);while(logEl.children.length>5)logEl.lastChild.remove();}
+function startWipe(reason){if(S.wipe)return;S.wipe={t:0,d0:S.dust};$("#btnClean").disabled=true;log(reason);}
+
+function sunPhi(){return (S.hour-6)/12*Math.PI;}
+function irradiance(){const s=Math.sin(sunPhi());return s>0?1000*Math.pow(s,1.15):0;}
+function readLDRs(G){
+  const delta=(sunPhi()-Math.PI/2)-S.tilt;               // + : sun is west of panel normal
+  const k=clamp(delta*3,-1,1), base=.12+.88*G/1000;
+  let E=base*(.7-.3*k), W=base*(.7+.3*k);
+  if(S.fault==="ldr") E*=.15;
+  E+= (Math.random()-.5)*.004; W+=(Math.random()-.5)*.004;
+  return [Math.max(0,E),Math.max(0,W)];
+}
+function controllerStep(G){
+  const [E,W]=readLDRs(G); S.E=E; S.W=W;
+  let want=0;
+  if(G<30){ if(S.tilt>-LIMIT+.01) want=-1; }               // night: park facing sunrise
+  else { const r=(E-W)/(E+W+1e-6); if(r>.04)want=-1; else if(r<-.04)want=1; }
+  if(want && !(want<0&&S.tilt<=-LIMIT) && !(want>0&&S.tilt>=LIMIT)){
+    if(S.fault==="stall"){S.stall+=.1;}
+    else {S.tilt=clamp(S.tilt+want*1.2*D*(G<30?.5:1),-LIMIT,LIMIT);S.stall=0;}
+  } else S.stall=Math.max(0,S.stall-.2);
+}
+function measure(G){
+  const delta=(sunPhi()-Math.PI/2)-S.tilt;
+  const Gpoa=G*Math.max(0,Math.cos(delta));
+  let T=27+24*Gpoa/1000+(S.fault==="heat"?32:0);
+  const tf=1-.004*(T-25);
+  const expected=10*Gpoa/1000*tf;
+  let P=expected*(1-.55*S.dust), V, I;
+  if(G<15){V=0;I=0;P=0;}
+  else if(S.fault==="open"){V=21.4*Math.min(1,G/150);I=0;P=0;}
+  else {V=16.6+1.1*Gpoa/1000-.07*(T-25);I=P/V;}
+  return {V,I,P,T,expected,delta,G};
+}
+function diagnose(m){
+  const out=[];
+  if(m.G<30){out.push({sev:"info",t:"Night: parked facing sunrise",d:"Logging paused until the LDRs see light.",r:"G < 30 W/m²"});return out;}
+  if(m.V>20&&m.I<.01&&m.G>150) out.push({sev:"crit",t:"Voltage present, no current",d:"Open circuit between panel and load. Check the INA219 terminals and the fuse.",r:"V > 20 V and I < 10 mA"});
+  if(m.T>60) out.push({sev:"crit",t:`Panel at ${m.T.toFixed(0)} °C`,d:"Above the 60 °C limit. Check airflow behind the panel.",r:"T > 60 °C"});
+  if(S.stall>2) out.push({sev:"crit",t:"Tilt servo not responding",d:"LDR imbalance has persisted for over 2 s of move commands. Servo may be stalled or unpowered.",r:"|E−W| > 4% for 2 s"});
+  const sunT=sunPhi()-Math.PI/2, atLimit=Math.abs(sunT)>LIMIT&&Math.abs(Math.abs(S.tilt)-LIMIT)<2*D&&Math.sign(sunT)===Math.sign(S.tilt);
+  if(atLimit) out.push({sev:"info",t:"At tilt limit (±60°)",d:"Sun is lower than the frame can follow. Normal early and late in the day.",r:"|sun angle| > 60°"});
+  else if(Math.abs(m.delta)>12*D&&m.G>150&&S.stall<=2) out.push({sev:"warn",t:`Panel ${Math.abs(m.delta/D).toFixed(0)}° off the sun`,d:S.fault==="ldr"?"One LDR reads far lower than the other. Clean or uncover the LDR pair.":"Check the LDR pair for shading.",r:"tracking error > 12°"});
+  const ratio=m.expected>0?m.P/m.expected:1;
+  if(m.G>200&&m.I>.01&&ratio<.8) out.push({sev:"warn",t:`Output ${Math.round((1-ratio)*100)}% below expected`,d:"Likely dust on the glass. Run a cleaning cycle.",r:"P < 0.8 × expected",soil:true});
+  if(!out.length) out.push({sev:"ok",t:"All checks passing",d:"Tracking, output and temperature are within limits.",r:"5 rules evaluated"});
+  return out;
+}
+const sevVar={ok:"--ok",warn:"--warn",crit:"--crit",info:"--info"};
+function renderDash(m,diags){
+  $("#tV").textContent=m.V.toFixed(2)+" V";
+  $("#tI").textContent=(m.I*1000).toFixed(0)+" mA";
+  $("#tP").textContent=m.P.toFixed(2)+" W";
+  $("#tT").textContent=m.T.toFixed(1)+" °C";
+  $("#tA").textContent=(S.tilt/D>0?"W ":S.tilt/D<0?"E ":"")+Math.abs(S.tilt/D).toFixed(0)+"°";
+  $("#tL").innerHTML=Math.round(S.E*3600)+" / "+Math.round(S.W*3600)+" <small>ADC</small>";
+  const key=diags.map(d=>d.t).join("|");
+  if(key!==S.last.diag){
+    S.last.diag=key;
+    $("#diag").innerHTML=diags.map(d=>`<li style="--sev:var(${sevVar[d.sev]})"><strong>${d.t}</strong><p>${d.d}</p><code>rule: ${d.r}</code></li>`).join("");
+    diags.filter(d=>d.sev==="crit"||d.sev==="warn").forEach(d=>{if(!(S.last.logged||"").includes(d.t))log(d.t);});
+    S.last.logged=key;
+  }
+}
+
+/* ---------- loop ---------- */
+let w=1,h=1;
+new ResizeObserver(()=>{const r=stage.getBoundingClientRect();w=Math.max(1,r.width);h=Math.max(1,r.height);renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();}).observe(stage);
+let prev=performance.now(), uiAcc=0;
+syncOutputs();
+function frame(now){
+  const dt=Math.min(.05,(now-prev)/1000); prev=now;
+  if(S.playing){S.hour+=dt/3; if(S.hour>18.5)S.hour=5.5; if(!S.wipe)S.dust=Math.min(1,S.dust+dt/3*.008);}
+  const G=irradiance();
+  S.ctlAcc+=dt; while(S.ctlAcc>.1){S.ctlAcc-=.1;controllerStep(G);}
+  // wiper
+  if(S.wipe){
+    S.wipe.t+=dt/3.4; const t=Math.min(1,S.wipe.t);
+    wiperPivot.rotation.y=PARK*Math.cos(4*Math.PI*t);
+    S.dust=S.wipe.d0*(1-.9*t);
+    if(t>=1){S.wipe=null;wiperPivot.rotation.y=PARK;$("#btnClean").disabled=false;log("Cleaning done, dust at "+Math.round(S.dust*100)+"%");}
+  }
+  tiltPivot.rotation.z=S.tilt;
+  dustMat.opacity=S.dust*.72;
+  // sun
+  const p=sunPhi(), s=Math.sin(p);
+  sunMesh.position.set(SUN_R*Math.cos(p),SUN_R*s,SUN_Z); sunMesh.visible=s>-.04;
+  sunLight.position.copy(sunMesh.position); sunLight.intensity=s>0?.25+1.25*Math.pow(s,.6):0;
+  hemi.intensity=.3+.35*Math.max(0,s);
+  uiAcc+=dt;
+  if(uiAcc>.25){uiAcc=0;
+    const m=measure(G), diags=diagnose(m); renderDash(m,diags);
+    if(diags.some(d=>d.soil)) S.soilTimer+=.25; else S.soilTimer=0;
+    if(S.auto&&S.soilTimer>1.5&&!S.wipe){S.soilTimer=0;startWipe("Auto-clean triggered by soiling rule");}
+    if(S.playing||S.wipe){hourEl.value=S.hour;dustEl.value=Math.round(S.dust*100);syncOutputs();}
+  }
+  controls.update();
+  renderer.render(scene,camera);
+  placeLabels(w,h);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+})();
+</script>
+
+</body>
+</html>
