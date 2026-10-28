@@ -1,4 +1,4 @@
-// Bring-up step 4: read the DS18B20 panel temperature probe.
+// Bring-up step 5: read the DS18B20 panel temperature probe.
 // Hold the probe in your hand; the reading should rise within a few seconds.
 // -127 means the probe is not found: check GPIO 4 and the 4.7 kOhm pull-up.
 #include <OneWire.h>

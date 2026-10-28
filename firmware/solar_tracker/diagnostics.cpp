@@ -3,15 +3,14 @@
 #include <Preferences.h>
 #include <stdarg.h>
 
+// Soiling is judged on panel CURRENT, not power. A PWM charge controller pins the
+// panel near battery voltage, so power swings with battery state while current
+// still tracks sunlight.
+
 namespace {
   Preferences prefs;
-  float    baselineK      = 0;   // clean-panel watts per LDR count, temperature-corrected to 25 °C
-  uint32_t mismatchSince  = 0;
-
-  float tempFactor(float tC) {
-    if (isnan(tC)) return 1.0f;
-    return 1.0f + TEMP_COEFF_PER_C * (tC - 25.0f);
-  }
+  float    baselineK     = 0;   // clean-panel amps per LDR count
+  uint32_t mismatchSince = 0;
 
   void add(DiagReport &r, const char *code, Severity sev, const char *fmt, ...) {
     if (r.count >= DiagReport::MAX) return;
@@ -30,26 +29,27 @@ namespace Diagnostics {
 
 void begin() {
   prefs.begin("solar", false);
-  baselineK = prefs.getFloat("k", 0.0f);
+  baselineK = prefs.getFloat("kI", 0.0f);
 }
 
 float baseline() { return baselineK; }
 
-bool calibrate(const SensorData &s, const TrackerStatus &t, const char **reason) {
+bool calibrate(const SensorData &s, const TrackerStatus &t, const BatteryData &b, const char **reason) {
   int light = (s.ldrEast + s.ldrWest) / 2;
   if (!s.inaOk)                         { *reason = "INA219 not found"; return false; }
   if (light < DIAG_BRIGHT_LDR)          { *reason = "Not enough light. Calibrate in direct sun"; return false; }
-  if (max(s.ldrEast, s.ldrWest) >= DIAG_LDR_SATURATED) { *reason = "LDRs saturated. Use a smaller divider resistor"; return false; }
+  if (max(s.ldrEast, s.ldrWest) >= DIAG_LDR_SATURATED) { *reason = "LDRs saturated. Use smaller divider resistors"; return false; }
   if (t.state == TrackerState::Tracking){ *reason = "Panel still moving. Try again in a few seconds"; return false; }
+  if (b.full)                           { *reason = "Battery full, so charging is throttled. Calibrate when it is below 13.6 V"; return false; }
   if (s.current < DIAG_MIN_CURRENT_A)   { *reason = "No panel current"; return false; }
 
-  baselineK = (s.power / tempFactor(s.panelTempC)) / float(light);
-  prefs.putFloat("k", baselineK);
+  baselineK = s.current / float(light);
+  prefs.putFloat("kI", baselineK);
   *reason = "Baseline saved";
   return true;
 }
 
-void evaluate(const SensorData &s, const TrackerStatus &t, DiagReport &r) {
+void evaluate(const SensorData &s, const TrackerStatus &t, const BatteryData &b, DiagReport &r) {
   r = DiagReport();
   r.calibrated = baselineK > 0;
   int light = (s.ldrEast + s.ldrWest) / 2;
@@ -61,18 +61,43 @@ void evaluate(const SensorData &s, const TrackerStatus &t, DiagReport &r) {
   if (!s.tempOk)
     add(r, "TEMP_SENSOR", Severity::Warn, "DS18B20 not responding. Check GPIO 4 and the 4.7 kOhm pull-up.");
 
+  // Battery
+  if (BATTERY_ENABLED) {
+    if (!b.present)
+      add(r, "BATTERY_SENSOR", Severity::Warn, "Battery reads under %.0f V. Check the divider on GPIO 32, or set BATTERY_ENABLED false for bench use.", BATTERY_MISSING_V);
+    else if (b.voltage > BATTERY_HIGH_V)
+      add(r, "BATTERY_HIGH", Severity::Crit, "Battery at %.1f V. Overcharging: check the charge controller.", b.voltage);
+    else if (b.critical)
+      add(r, "BATTERY_CRITICAL", Severity::Crit, "Battery at %.1f V. Entering low-battery sleep to protect it.", b.voltage);
+    else if (b.low)
+      add(r, "BATTERY_LOW", Severity::Warn, "Battery at %.1f V. Charge is low.", b.voltage);
+    else if (b.full)
+      add(r, "BATTERY_FULL", Severity::Info, "Battery full (%.1f V). Controller is limiting charge, so output checks are paused.", b.voltage);
+  }
+
   // Night
   if (light < DARK_THRESHOLD) {
     r.night = true;
     add(r, "NIGHT", Severity::Info, "Night: parked facing sunrise.");
+    if (r.worst <= Severity::Info) add(r, "OK", Severity::Ok, "No faults detected.");
     return;
   }
 
-  // Electrical
-  if (s.inaOk && s.busVoltage > DIAG_OPEN_V && s.current < DIAG_MIN_CURRENT_A)
-    add(r, "OPEN_CIRCUIT", Severity::Crit, "%.1f V but no current. Load side is open: check VIN-, load resistor and wiring.", s.busVoltage);
-  else if (s.inaOk && bright && s.busVoltage < DIAG_NO_VOLTAGE_V)
-    add(r, "NO_PANEL_VOLTAGE", Severity::Crit, "Bright light but no panel voltage. Check the fuse and panel connection.");
+  // Charging path. When the battery is full the controller cuts the current on
+  // purpose, so these checks only run while the battery can still take charge.
+  bool electricalFault = false;
+  if (s.inaOk && !b.full) {
+    if (s.busVoltage > DIAG_OPEN_V && s.current < DIAG_MIN_CURRENT_A) {
+      add(r, "OPEN_CIRCUIT", Severity::Crit, "%.1f V but no current. Check INA219 VIN- to controller PV+ (wire 18).", s.busVoltage);
+      electricalFault = true;
+    } else if (bright && s.busVoltage < DIAG_NO_VOLTAGE_V) {
+      add(r, "NO_PANEL_VOLTAGE", Severity::Crit, "Bright light but no panel voltage. Check fuse F1 and the panel wires.");
+      electricalFault = true;
+    } else if (bright && s.current < DIAG_MIN_CURRENT_A) {
+      add(r, "NO_CHARGE", Severity::Warn, "Bright light but no charging current. Check the controller PV terminals (wires 18-19).");
+      electricalFault = true;
+    }
+  }
 
   if (s.tempOk && s.panelTempC > DIAG_OVERHEAT_C)
     add(r, "OVERHEAT", Severity::Crit, "Panel at %.0f C, above %.0f C. Check airflow behind the panel.", s.panelTempC, DIAG_OVERHEAT_C);
@@ -95,12 +120,13 @@ void evaluate(const SensorData &s, const TrackerStatus &t, DiagReport &r) {
     add(r, "AT_LIMIT", Severity::Info, "At the %d degree tilt limit. Normal early and late in the day.", TILT_LIMIT_DEG);
 
   if (hi >= DIAG_LDR_SATURATED)
-    add(r, "LDR_SATURATED", Severity::Info, "LDRs saturated in full sun. Soiling check paused; consider a smaller divider resistor.");
+    add(r, "LDR_SATURATED", Severity::Info, "LDRs saturated in full sun. Soiling check paused; consider smaller divider resistors.");
 
-  // Soiling: compare against the clean-panel baseline
-  if (r.calibrated && bright && hi < DIAG_LDR_SATURATED && s.inaOk && s.current >= DIAG_MIN_CURRENT_A) {
-    r.expectedPower = baselineK * light * tempFactor(s.panelTempC);
-    r.soilingRatio  = r.expectedPower > 0 ? s.power / r.expectedPower : NAN;
+  // Soiling: compare panel current against the clean-panel baseline
+  if (r.calibrated && bright && hi < DIAG_LDR_SATURATED && s.inaOk && !b.full && !electricalFault) {
+    r.expectedCurrent = baselineK * light;
+    r.expectedPower   = r.expectedCurrent * s.busVoltage;
+    r.soilingRatio    = r.expectedCurrent > 0 ? s.current / r.expectedCurrent : NAN;
     if (!isnan(r.soilingRatio) && r.soilingRatio < DIAG_SOILING_RATIO) {
       r.soiling = true;
       add(r, "SOILING", Severity::Warn, "Output %.0f%% below expected for this light. Run a cleaning cycle.",

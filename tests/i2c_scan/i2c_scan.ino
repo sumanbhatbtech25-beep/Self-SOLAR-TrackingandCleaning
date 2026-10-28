@@ -18,6 +18,6 @@ void loop() {
       found++;
     }
   }
-  if (!found) Serial.println("  No devices found. Check wiring 7-10.");
+  if (!found) Serial.println("  No devices found. Check wires 12-15.");
   delay(3000);
 }

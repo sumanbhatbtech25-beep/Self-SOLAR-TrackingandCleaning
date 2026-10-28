@@ -28,10 +28,10 @@ namespace {
 
 namespace Tracker {
 
-void begin() {
+void begin(int initialTiltDeg) {
   tiltServo.setPeriodHertz(50);
   tiltServo.attach(PIN_SERVO_TILT, SERVO_MIN_US, SERVO_MAX_US);
-  writeTilt(0);   // start flat
+  writeTilt(initialTiltDeg);   // flat on power-up, previous position after deep sleep
 }
 
 void update() {

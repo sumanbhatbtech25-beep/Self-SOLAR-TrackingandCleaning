@@ -71,7 +71,7 @@ select{font:inherit;background:var(--bg);color:var(--fg);border:1px solid var(--
 .check{display:flex;gap:6px;align-items:center;font-size:13px}
 .check input{accent-color:var(--accent)}
 
-.tele{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.tele{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:6px;overflow:hidden}
 .tele div{background:var(--surface);padding:8px 9px;min-width:0}
 .tele span{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
 .tele b{font:500 17px/1.2 var(--f-mono);font-variant-numeric:tabular-nums}
@@ -112,7 +112,7 @@ select{font:inherit;background:var(--bg);color:var(--fg);border:1px solid var(--
 <div class="app">
   <header class="top">
     <h1>Solar Tracker Rig</h1>
-    <p>Single-axis tracker with servo wiper, INA219 power sensing and rule-based fault checks, all on one ESP32.</p>
+    <p>Single-axis tracker with servo wiper, INA219 power sensing, 12 V battery storage and rule-based fault checks, all on one ESP32.</p>
   </header>
   <main class="layout">
     <section class="stage" id="stage">
@@ -135,9 +135,11 @@ select{font:inherit;background:var(--bg);color:var(--fg);border:1px solid var(--
       <section class="sec">
         <h2>Conditions</h2>
         <div class="field"><label for="hour">Time of day</label><output id="hourOut"></output>
-          <input type="range" id="hour" min="5.5" max="18.5" step="0.05" value="10.5"></div>
+          <input type="range" id="hour" min="0" max="23.95" step="0.05" value="10.5"></div>
         <div class="field"><label for="dust">Dust on panel</label><output id="dustOut"></output>
           <input type="range" id="dust" min="0" max="100" step="1" value="35"></div>
+        <div class="field"><label for="soc">Battery charge</label><output id="socOut"></output>
+          <input type="range" id="soc" min="0" max="100" step="1" value="62"></div>
         <label for="fault" style="font-weight:500">Inject a fault</label>
         <select id="fault">
           <option value="none">No fault</option>
@@ -156,12 +158,14 @@ select{font:inherit;background:var(--bg);color:var(--fg);border:1px solid var(--
       <section class="sec">
         <h2>Dashboard (served by ESP32)</h2>
         <div class="tele">
-          <div><span>Voltage</span><b id="tV">–</b></div>
-          <div><span>Current</span><b id="tI">–</b></div>
-          <div><span>Power</span><b id="tP">–</b></div>
+          <div><span>Panel voltage</span><b id="tV">–</b></div>
+          <div><span>Panel current</span><b id="tI">–</b></div>
+          <div><span>Charging power</span><b id="tP">–</b></div>
           <div><span>Panel temp</span><b id="tT">–</b></div>
           <div><span>Tilt</span><b id="tA">–</b></div>
           <div><span>LDR E / W</span><b id="tL">–</b></div>
+          <div><span>Battery</span><b id="tB">–</b></div>
+          <div><span>Energy flow</span><b id="tF">–</b></div>
         </div>
         <ul class="diag" id="diag"></ul>
         <ul class="log" id="log"></ul>
@@ -221,7 +225,9 @@ const PARTS = {
   ina219:{name:"INA219 power sensor",cost:"₹90–150",role:"Measures panel voltage and current on the high side over I²C. Power and the expected-vs-actual check come from this."},
   breadboard:{name:"Breadboard, wires, connectors",cost:"₹150–250",role:"Holds the ESP32 and INA219 for the first prototype. Move to perfboard once the wiring is final."},
   frame:{name:"DIY frame, rails, axle",cost:"₹250–400",role:"Plywood base, two aluminium uprights with bearing blocks, a steel axle and two rails clamping the panel."},
-  power:{name:"Power supply and protection",cost:"₹200–350",role:"DC jack, inline fuse, 5 V buck converter for servos and ESP32, 470 µF rail capacitor and the dummy load resistor."}
+  power:{name:"Power supply and protection",cost:"₹200–350",role:"12→5 V buck converter fed from the battery, 1 A panel fuse, 470 µF servo-rail capacitor and the battery-sense divider. A DC jack lets you bench-test from a 5 V adapter."},
+  charger:{name:"PWM solar charge controller",cost:"₹300–450",role:"Charges the battery from the panel and stops at full. The INA219 sits between the panel and its PV input, so the ESP32 still sees the panel current."},
+  battery:{name:"12 V 7 Ah sealed lead-acid battery",cost:"₹700–900",role:"Stores daytime energy (about 84 Wh) for the night. Powers the ESP32 and servos through the buck converter, behind a 5 A fuse."}
 };
 const COST_ROWS = [
   ["esp32","1 × ESP32 development board","₹300–450"],
@@ -235,6 +241,9 @@ const COST_ROWS = [
   ["breadboard","Breadboard, wires, connectors","₹150–250"],
   ["frame","DIY frame, rails, wiper blade","₹250–400"],
   ["power","Power supply and protection","₹200–350"],
+  ["battery","12 V 7 Ah sealed lead-acid battery","₹700–900"],
+  ["charger","PWM solar charge controller, 10 A","₹300–450"],
+  [null,"Battery fuse (5 A) and thicker wire","₹100–150"],
   [null,"Miscellaneous and shipping","₹300–500"]
 ];
 
@@ -247,7 +256,7 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputEncoding = THREE.sRGBEncoding;
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(36,1,1,2000);
-const HOME = {pos:new THREE.Vector3(70,52,66), target:new THREE.Vector3(0,13,-6)};
+const HOME = {pos:new THREE.Vector3(78,56,62), target:new THREE.Vector3(0,12,-14)};
 camera.position.copy(HOME.pos);
 const controls = new THREE.OrbitControls(camera,canvas);
 controls.target.copy(HOME.target);
@@ -294,7 +303,7 @@ const world = new THREE.Group(); scene.add(world);
 const ply = mat("frame",{color:0xc79d66,roughness:.85});
 const alu = mat("frame",{color:0xb7c0c7,metalness:.55,roughness:.35});
 const dark = mat("frame",{color:0x3b4249,roughness:.5});
-add(B(40,1.8,84),ply,"frame",world,0,.9,-6);
+add(B(40,1.8,104),ply,"frame",world,0,.9,-16);
 [-21.5,21.5].forEach(z=>{
   add(B(2,21.4,2),alu,"frame",world,0,1.8+10.7,z);
   add(B(6,.6,4),alu,"frame",world,0,2.1,z);
@@ -407,7 +416,6 @@ add(B(4.3,.16,2.1),buck,"power",world,5,F+.9,BOX_Z+3.2);
 add(C(.7,.7),mat("power",{color:0x2a2a2a}),"power",world,4.2,F+1.33,BOX_Z+3.2);
 add(B(.6,.6,.6),mat("power",{color:0x3a6fd8}),"power",world,6.3,F+1.28,BOX_Z+3.6);
 const cap = add(C(.55,1.6),mat("power",{color:0x24308a}),"power",world,1.3,F+.8,BOX_Z+3.2);
-add(B(4.8,.9,.9),mat("power",{color:0xe9e4d8,roughness:.9}),"power",world,-3.2,F+.45,BOX_Z+3.4);
 const fuse = add(C(.45,3),mat("power",{color:0x1a1a1a}),"power",world,-8,F+.45,BOX_Z+3); fuse.rotation.x = Math.PI/2;
 add(B(.6,1.2,1.2),mat("power",{color:0x111111}),"power",world,-11.2,F+2.2,BOX_Z+3.2);
 
@@ -418,6 +426,26 @@ tube([[.7,AXLE_Y-1.6,-20.5],[1.3,14,-20.6],[1.3,3,-20.6],[1.6,2.2,-24],[2,2.2,-2
 tube([[-.7,AXLE_Y-1.6,-20.5],[-1.3,14,-20.6],[-1.3,3,-20.6],[-1,2.2,-24],[-.5,2.2,-28],[-.5,4,-29.5]],.16,blk,"power",world);
 tube([[-.8,AXLE_Y-1.6,20.5],[-1.4,14,20.6],[-1.4,3,20.6],[-5,2.2,14],[-6,2.2,-20],[-6,2.2,-27],[-6,4,-29.5]],.15,sig,"breadboard",world);
 tube([[.8,AXLE_Y-1.6,20.5],[1.4,14,20.6],[1.4,3,20.6],[-4.4,2.2,14],[-5.4,2.2,-20],[-5.4,2.2,-27],[-5.4,4,-29.5]],.15,grn,"breadboard",world);
+
+/* battery and charge controller */
+const batBody = mat("battery",{color:0x26292c,roughness:.7});
+add(B(15.1,8.6,6.5),batBody,"battery",world,0,FLOOR+4.3,-57);
+add(B(15.1,.8,6.5),mat("battery",{color:0x3a3f44,roughness:.6}),"battery",world,0,FLOOR+9,-57);
+add(B(10,3.4,.06),mat("battery",{color:0xe8e8e2,roughness:.9}),"battery",world,0,FLOOR+4.6,-53.72);
+add(B(1.2,.9,1.6),mat("battery",{color:0xc0392b}),"battery",world,5.4,FLOOR+9.85,-57);
+add(B(1.2,.9,1.6),mat("battery",{color:0x1b1b1b}),"battery",world,-5.4,FLOOR+9.85,-57);
+const ccBody = mat("charger",{color:0xe9ecee,roughness:.5});
+add(B(7,3,13),ccBody,"charger",world,15.4,FLOOR+1.5,-35);
+add(B(4.2,.1,3.2),mat("charger",{color:0x16303f,roughness:.2,metalness:.2}),"charger",world,15.4,FLOOR+3.05,-33);
+[[-1.6,0x37c46a],[0,0xf2b130],[1.6,0xd9443a]].forEach(([dx,c])=>add(C(.25,.12,10),mat("charger",{color:c,emissive:c,emissiveIntensity:.4}),"charger",world,15.4+dx,FLOOR+3.06,-37.2));
+add(B(6.2,1.2,1.2),mat("charger",{color:0x2d6a3e}),"charger",world,15.4,FLOOR+1.6,-41.9);
+// panel -> INA219 (in box) -> controller PV, controller -> battery, battery -> buck (in box)
+tube([[10.8,4.2,-33],[11.4,4.4,-33],[11.9,4.2,-33]],.14,red,"charger",world);
+tube([[10.8,3.6,-34],[11.4,3.4,-34],[11.9,3.4,-34]],.14,blk,"charger",world);
+tube([[17,FLOOR+2.2,-42.4],[16,4,-47],[9,8,-53],[5.4,FLOOR+10.3,-56.2]],.18,red,"battery",world);
+tube([[14,FLOOR+2.2,-42.4],[11,3.6,-47],[-2,8,-52],[-5.4,FLOOR+10.3,-56.2]],.18,blk,"battery",world);
+tube([[5.4,FLOOR+10.3,-57.8],[4,9,-52],[2,5,-44],[2,4.2,-42.6]],.13,red,"power",world);
+tube([[-5.4,FLOOR+10.3,-57.8],[-4,9,-52],[-2,5,-44],[-2,4.2,-42.6]],.13,blk,"power",world);
 
 /* ---------- labels ---------- */
 const labelsEl = $("#labels");
@@ -430,6 +458,8 @@ const anchors = [
   ["esp32","ESP32",world,[-4.6,FLOOR+7.4,BOX_Z-2.6]],
   ["ina219","INA219",world,[3.6,FLOOR+7.4,BOX_Z-2.6]],
   ["power","Power & protection",world,[3,FLOOR+7.4,BOX_Z+3.5]],
+  ["charger","Charge controller",world,[15.4,FLOOR+3.5,-35]],
+  ["battery","Battery 12 V",world,[0,FLOOR+10.5,-57]],
   ["frame","DIY frame",world,[0,12,-21.5]]
 ].map(([part,text,obj,local])=>{
   const el=document.createElement("button");el.className="tag";el.type="button";el.textContent=text;el.dataset.part=part;
@@ -438,7 +468,7 @@ const anchors = [
 });
 // panel cell anchor is in plane-local coords (plane rotated), so use tiltPivot instead
 anchors[0].obj = tiltPivot; anchors[0].local.set(7,2.2,-10);
-[["E",[58,0,0]],["W",[-58,0,0]],["N",[0,0,58]],["S",[0,0,-62]]].forEach(([t,p])=>{
+[["E",[58,0,0]],["W",[-58,0,0]],["N",[0,0,58]],["S",[0,0,-78]]].forEach(([t,p])=>{
   const el=document.createElement("div");el.className="tag compass";el.textContent=t;labelsEl.appendChild(el);
   anchors.push({el,obj:scene,local:new THREE.Vector3(...p),passive:true});
 });
@@ -486,7 +516,7 @@ canvas.addEventListener("pointerup",e=>{
     if(part){tr.dataset.part=part;tr.tabIndex=0;tr.addEventListener("click",()=>select(part));tr.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();select(part);}});}
     if(opt)tr.className="opt";tb.appendChild(tr);
   });
-  $("#parts tfoot").innerHTML=`<tr><td>As modelled (no DC motor)</td><td>₹1,940–3,220</td></tr><tr><td>Full list from your plan</td><td>₹2,090–3,470</td></tr>`;
+  $("#parts tfoot").innerHTML=`<tr><td>As modelled (no DC motor)</td><td>₹3,040–4,720</td></tr><tr><td>With optional DC motor</td><td>₹3,190–4,970</td></tr>`;
 })();
 
 /* ---------- theme ---------- */
@@ -507,16 +537,18 @@ new MutationObserver(applyTheme).observe(document.documentElement,{attributes:tr
 
 /* ---------- simulation ---------- */
 const S = {hour:10.5,dust:.35,fault:"none",tilt:-25*D,playing:false,auto:false,
-  wipe:null,soilTimer:0,stall:0,ctlAcc:0,E:0,W:0,last:{}};
+  wipe:null,soilTimer:0,stall:0,ctlAcc:0,E:0,W:0,last:{},soc:.62,asleep:false,parkedFor:0,lowFor:0,lowLatched:false};
 const LIMIT = 60*D;
-const hourEl=$("#hour"),dustEl=$("#dust");
-const fmtHour=h=>{const m=Math.round(h*60);return String(Math.floor(m/60)).padStart(2,"0")+":"+String(m%60).padStart(2,"0");};
-function syncOutputs(){$("#hourOut").textContent=fmtHour(S.hour);$("#dustOut").textContent=Math.round(S.dust*100)+"%";}
-hourEl.addEventListener("input",()=>{S.hour=+hourEl.value;syncOutputs();});
+const BAT_WH = 84, LOAD_AWAKE = 1.0, LOAD_ASLEEP = .12;   // W
+const hourEl=$("#hour"),dustEl=$("#dust"),socEl=$("#soc");
+const fmtHour=h=>{const m=Math.round(h*60)%1440;return String(Math.floor(m/60)).padStart(2,"0")+":"+String(m%60).padStart(2,"0");};
+function syncOutputs(){$("#hourOut").textContent=fmtHour(S.hour);$("#dustOut").textContent=Math.round(S.dust*100)+"%";$("#socOut").textContent=Math.round(S.soc*100)+"%";}
+hourEl.addEventListener("input",()=>{S.hour=+hourEl.value;S.asleep=false;S.parkedFor=0;syncOutputs();});
 dustEl.addEventListener("input",()=>{if(!S.wipe){S.dust=dustEl.value/100;syncOutputs();}});
+socEl.addEventListener("input",()=>{S.soc=socEl.value/100;S.lowFor=0;S.lowLatched=false;S.asleep=false;syncOutputs();});
 $("#fault").addEventListener("change",e=>{S.fault=e.target.value;S.stall=0;log(e.target.value==="none"?"Fault cleared":"Fault injected: "+e.target.selectedOptions[0].text);});
 $("#btnPlay").addEventListener("click",e=>{S.playing=!S.playing;e.currentTarget.setAttribute("aria-pressed",S.playing);e.currentTarget.textContent=S.playing?"Pause":"Play the day";});
-$("#btnClean").addEventListener("click",()=>startWipe("Manual cleaning cycle"));
+$("#btnClean").addEventListener("click",()=>{if(S.asleep){log("Asleep: cleaning waits for morning");return;}startWipe("Manual cleaning cycle");});
 $("#autoClean").addEventListener("change",e=>{S.auto=e.target.checked;});
 $("#btnLabels").addEventListener("click",e=>{showLabels=!showLabels;e.currentTarget.setAttribute("aria-pressed",showLabels);});
 $("#btnReset").addEventListener("click",()=>{camera.position.copy(HOME.pos);controls.target.copy(HOME.target);});
@@ -529,7 +561,7 @@ function sunPhi(){return (S.hour-6)/12*Math.PI;}
 function irradiance(){const s=Math.sin(sunPhi());return s>0?1000*Math.pow(s,1.15):0;}
 function readLDRs(G){
   const delta=(sunPhi()-Math.PI/2)-S.tilt;               // + : sun is west of panel normal
-  const k=clamp(delta*3,-1,1), base=.12+.88*G/1000;
+  const k=clamp(delta*3,-1,1), base=.03+.97*G/1000;
   let E=base*(.7-.3*k), W=base*(.7+.3*k);
   if(S.fault==="ldr") E*=.15;
   E+= (Math.random()-.5)*.004; W+=(Math.random()-.5)*.004;
@@ -537,6 +569,7 @@ function readLDRs(G){
 }
 function controllerStep(G){
   const [E,W]=readLDRs(G); S.E=E; S.W=W;
+  if(S.asleep||S.wipe) return;                            // no tracking while asleep or wiping
   let want=0;
   if(G<30){ if(S.tilt>-LIMIT+.01) want=-1; }               // night: park facing sunrise
   else { const r=(E-W)/(E+W+1e-6); if(r>.04)want=-1; else if(r<-.04)want=1; }
@@ -545,40 +578,59 @@ function controllerStep(G){
     else {S.tilt=clamp(S.tilt+want*1.2*D*(G<30?.5:1),-LIMIT,LIMIT);S.stall=0;}
   } else S.stall=Math.max(0,S.stall-.2);
 }
+function batteryVolts(charging){
+  const rest=11.8+S.soc*1.0;
+  if(S.soc>=.995) return 13.7;                            // float
+  return charging? Math.min(14.4,rest+.35+1.2*Math.pow(S.soc,6)) : rest;
+}
 function measure(G){
   const delta=(sunPhi()-Math.PI/2)-S.tilt;
   const Gpoa=G*Math.max(0,Math.cos(delta));
-  let T=27+24*Gpoa/1000+(S.fault==="heat"?32:0);
-  const tf=1-.004*(T-25);
-  const expected=10*Gpoa/1000*tf;
-  let P=expected*(1-.55*S.dust), V, I;
-  if(G<15){V=0;I=0;P=0;}
-  else if(S.fault==="open"){V=21.4*Math.min(1,G/150);I=0;P=0;}
-  else {V=16.6+1.1*Gpoa/1000-.07*(T-25);I=P/V;}
-  return {V,I,P,T,expected,delta,G};
+  const T=24+26*Gpoa/1000+(S.fault==="heat"?32:0);
+  const Iclean=.58*Gpoa/1000;                              // 10 W panel, Imp ≈ 0.58 A
+  const load=S.asleep?LOAD_ASLEEP:LOAD_AWAKE;
+  const full=S.soc>=.995;
+  let I=Iclean*(1-.55*S.dust), V;
+  const Vb=batteryVolts(I>.02);
+  if(full) I=Math.min(I,load/Vb);                          // controller throttles at full charge
+  if(G<15){I=0;V=0;}
+  else if(S.fault==="open"){I=0;V=21.4*Math.min(1,G/150);}
+  else V=Vb+.25;                                           // PWM controller pins the panel near battery voltage
+  return {V,I,P:V*I,T,Iclean,delta,G,Vb:batteryVolts(I>.02&&!full),full,load};
 }
 function diagnose(m){
   const out=[];
-  if(m.G<30){out.push({sev:"info",t:"Night: parked facing sunrise",d:"Logging paused until the LDRs see light.",r:"G < 30 W/m²"});return out;}
-  if(m.V>20&&m.I<.01&&m.G>150) out.push({sev:"crit",t:"Voltage present, no current",d:"Open circuit between panel and load. Check the INA219 terminals and the fuse.",r:"V > 20 V and I < 10 mA"});
+  if(m.Vb>15) out.push({sev:"crit",t:"Battery overcharging",d:"Check the charge controller.",r:"V_bat > 15.0 V"});
+  else if(m.Vb<11.8) out.push({sev:"crit",t:`Battery ${m.Vb.toFixed(1)} V`,d:"Below the cut-off. Board enters low-battery sleep to protect it.",r:"V_bat < 11.8 V for 30 s"});
+  else if(m.Vb<12) out.push({sev:"warn",t:`Battery low, ${m.Vb.toFixed(1)} V`,d:"Charge is low. Clean the panel and check tracking.",r:"V_bat < 12.0 V"});
+  else if(m.full) out.push({sev:"info",t:"Battery full",d:"Controller is limiting charge, so output checks are paused.",r:"V_bat ≥ 13.6 V"});
+  if(m.G<30){
+    out.push({sev:"info",t:S.asleep?"Night: asleep in 15-min naps":"Night: parking facing sunrise",d:S.asleep?"Dashboard offline until the LDRs see light.":"Sleeps once parked for 5 minutes.",r:"G < 30 W/m²"});
+    return out;
+  }
+  if(!m.full&&m.V>19.5&&m.I<.01&&m.G>150) out.push({sev:"crit",t:"Voltage present, no current",d:"Open circuit between the INA219 and the controller's PV input.",r:"V > 19.5 V and I < 10 mA"});
   if(m.T>60) out.push({sev:"crit",t:`Panel at ${m.T.toFixed(0)} °C`,d:"Above the 60 °C limit. Check airflow behind the panel.",r:"T > 60 °C"});
   if(S.stall>2) out.push({sev:"crit",t:"Tilt servo not responding",d:"LDR imbalance has persisted for over 2 s of move commands. Servo may be stalled or unpowered.",r:"|E−W| > 4% for 2 s"});
   const sunT=sunPhi()-Math.PI/2, atLimit=Math.abs(sunT)>LIMIT&&Math.abs(Math.abs(S.tilt)-LIMIT)<2*D&&Math.sign(sunT)===Math.sign(S.tilt);
   if(atLimit) out.push({sev:"info",t:"At tilt limit (±60°)",d:"Sun is lower than the frame can follow. Normal early and late in the day.",r:"|sun angle| > 60°"});
   else if(Math.abs(m.delta)>12*D&&m.G>150&&S.stall<=2) out.push({sev:"warn",t:`Panel ${Math.abs(m.delta/D).toFixed(0)}° off the sun`,d:S.fault==="ldr"?"One LDR reads far lower than the other. Clean or uncover the LDR pair.":"Check the LDR pair for shading.",r:"tracking error > 12°"});
-  const ratio=m.expected>0?m.P/m.expected:1;
-  if(m.G>200&&m.I>.01&&ratio<.8) out.push({sev:"warn",t:`Output ${Math.round((1-ratio)*100)}% below expected`,d:"Likely dust on the glass. Run a cleaning cycle.",r:"P < 0.8 × expected",soil:true});
-  if(!out.length) out.push({sev:"ok",t:"All checks passing",d:"Tracking, output and temperature are within limits.",r:"5 rules evaluated"});
+  const ratio=m.Iclean>0?m.I/m.Iclean:1;
+  if(!m.full&&m.G>200&&m.I>.01&&ratio<.8) out.push({sev:"warn",t:`Output ${Math.round((1-ratio)*100)}% below expected`,d:"Likely dust on the glass. Run a cleaning cycle.",r:"I < 0.8 × expected",soil:true});
+  if(!out.some(d=>d.sev==="warn"||d.sev==="crit")) out.unshift({sev:"ok",t:"All checks passing",d:"Charging, tracking and temperature are within limits.",r:"all rules evaluated"});
   return out;
 }
 const sevVar={ok:"--ok",warn:"--warn",crit:"--crit",info:"--info"};
 function renderDash(m,diags){
-  $("#tV").textContent=m.V.toFixed(2)+" V";
-  $("#tI").textContent=(m.I*1000).toFixed(0)+" mA";
-  $("#tP").textContent=m.P.toFixed(2)+" W";
-  $("#tT").textContent=m.T.toFixed(1)+" °C";
+  const off=S.asleep;
+  $("#tV").textContent=off?"asleep":m.V.toFixed(2)+" V";
+  $("#tI").textContent=off?"–":(m.I*1000).toFixed(0)+" mA";
+  $("#tP").textContent=off?"–":m.P.toFixed(2)+" W";
+  $("#tT").textContent=off?"–":m.T.toFixed(1)+" °C";
   $("#tA").textContent=(S.tilt/D>0?"W ":S.tilt/D<0?"E ":"")+Math.abs(S.tilt/D).toFixed(0)+"°";
   $("#tL").innerHTML=Math.round(S.E*3600)+" / "+Math.round(S.W*3600)+" <small>ADC</small>";
+  $("#tB").innerHTML=m.Vb.toFixed(2)+" V <small>"+(m.full?"full":"~"+Math.round(S.soc*100)+"%")+"</small>";
+  const net=m.P*.85-m.load;
+  $("#tF").innerHTML=(net>=0?"+":"")+net.toFixed(2)+" W <small>"+(net>=0?"charging":"from battery")+"</small>";
   const key=diags.map(d=>d.t).join("|");
   if(key!==S.last.diag){
     S.last.diag=key;
@@ -587,16 +639,31 @@ function renderDash(m,diags){
     S.last.logged=key;
   }
 }
+// energy bookkeeping and the firmware's sleep rules, per simulated hour step
+function powerStep(m,dtHours,G){
+  if(S.playing){
+    S.soc=clamp(S.soc+(m.P*.85-m.load)*dtHours/BAT_WH,0,1);
+  }
+  // night sleep: dark and parked at the east limit for 5 simulated minutes
+  const parked=G<30&&S.tilt<=-LIMIT+.01;
+  if(!S.asleep&&parked&&!S.wipe){S.parkedFor+=dtHours*60; if(S.parkedFor>=5){S.asleep=true;log("Night: sleeping in 15-minute naps");}}
+  if(!parked)S.parkedFor=0;
+  if(S.asleep&&G>=30&&!S.lowLatched){S.asleep=false;log("Morning: woke from night sleep");}
+  // low battery: latch below 11.8 V, resume above 12.3 V
+  if(!S.lowLatched&&m.Vb<11.8){S.lowLatched=true;S.asleep=true;log("Battery low: low-battery sleep");}
+  if(S.lowLatched&&m.Vb>=12.3){S.lowLatched=false;if(G>=30)S.asleep=false;log("Battery recovered, resuming");}
+}
 
 /* ---------- loop ---------- */
 let w=1,h=1;
 new ResizeObserver(()=>{const r=stage.getBoundingClientRect();w=Math.max(1,r.width);h=Math.max(1,r.height);renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();}).observe(stage);
-let prev=performance.now(), uiAcc=0;
+let prev=performance.now(), uiAcc=0, uiHours=0;
 syncOutputs();
 function frame(now){
   const dt=Math.min(.05,(now-prev)/1000); prev=now;
-  if(S.playing){S.hour+=dt/3; if(S.hour>18.5)S.hour=5.5; if(!S.wipe)S.dust=Math.min(1,S.dust+dt/3*.008);}
   const G=irradiance();
+  let dtHours=0;
+  if(S.playing){dtHours=dt/3*(G<30?4:1); S.hour+=dtHours; if(S.hour>=24)S.hour-=24; if(!S.wipe)S.dust=Math.min(1,S.dust+dtHours*.008);}
   S.ctlAcc+=dt; while(S.ctlAcc>.1){S.ctlAcc-=.1;controllerStep(G);}
   // wiper
   if(S.wipe){
@@ -612,12 +679,13 @@ function frame(now){
   sunMesh.position.set(SUN_R*Math.cos(p),SUN_R*s,SUN_Z); sunMesh.visible=s>-.04;
   sunLight.position.copy(sunMesh.position); sunLight.intensity=s>0?.25+1.25*Math.pow(s,.6):0;
   hemi.intensity=.3+.35*Math.max(0,s);
-  uiAcc+=dt;
+  uiAcc+=dt; uiHours+=dtHours;
   if(uiAcc>.25){uiAcc=0;
-    const m=measure(G), diags=diagnose(m); renderDash(m,diags);
+    const m=measure(G); powerStep(m,uiHours,G); uiHours=0;
+    const diags=diagnose(m); renderDash(m,diags);
     if(diags.some(d=>d.soil)) S.soilTimer+=.25; else S.soilTimer=0;
-    if(S.auto&&S.soilTimer>1.5&&!S.wipe){S.soilTimer=0;startWipe("Auto-clean triggered by soiling rule");}
-    if(S.playing||S.wipe){hourEl.value=S.hour;dustEl.value=Math.round(S.dust*100);syncOutputs();}
+    if(S.auto&&S.soilTimer>1.5&&!S.wipe&&!S.asleep){S.soilTimer=0;startWipe("Auto-clean triggered by soiling rule");}
+    if(S.playing||S.wipe){hourEl.value=S.hour;dustEl.value=Math.round(S.dust*100);socEl.value=Math.round(S.soc*100);syncOutputs();}
   }
   controls.update();
   renderer.render(scene,camera);

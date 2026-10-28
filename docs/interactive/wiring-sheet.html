@@ -12,7 +12,7 @@
 :root{
   --bg:#eef2f4; --surface:#ffffff; --fg:#15222c; --muted:#5a6a75; --line:#cdd6dc; --accent:#d98a10;
   --board:#e4eaee; --module:#f6f8f9;
-  --w5:#cf3128; --w33:#d27a0c; --wgnd:#2b3740; --wsig:#2563c9; --wi2c:#2a8a56; --wpv:#8a4fc7; --wopt:#7d8a94;
+  --w5:#cf3128; --w33:#d27a0c; --wgnd:#2b3740; --wsig:#2563c9; --wi2c:#2a8a56; --wpv:#8a4fc7; --wopt:#7d8a94; --wbat:#a8461b;
   --f-display:"Barlow Condensed","Arial Narrow",sans-serif;
   --f-body:"IBM Plex Sans",system-ui,sans-serif;
   --f-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
@@ -20,11 +20,11 @@
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
   --bg:#0e161c; --surface:#15212a; --fg:#e2e9ee; --muted:#93a3ae; --line:#283742; --accent:#f2a93b;
   --board:#1c2932; --module:#1a2730;
-  --w5:#ff6b5e; --w33:#f5a742; --wgnd:#c6d1d8; --wsig:#6aa5ff; --wi2c:#5fcf8e; --wpv:#c08cf0; --wopt:#8796a1; color-scheme:dark}}
+  --w5:#ff6b5e; --w33:#f5a742; --wgnd:#c6d1d8; --wsig:#6aa5ff; --wi2c:#5fcf8e; --wpv:#c08cf0; --wopt:#8796a1; --wbat:#ff8a5c; color-scheme:dark}}
 :root[data-theme="dark"]{
   --bg:#0e161c; --surface:#15212a; --fg:#e2e9ee; --muted:#93a3ae; --line:#283742; --accent:#f2a93b;
   --board:#1c2932; --module:#1a2730;
-  --w5:#ff6b5e; --w33:#f5a742; --wgnd:#c6d1d8; --wsig:#6aa5ff; --wi2c:#5fcf8e; --wpv:#c08cf0; --wopt:#8796a1; color-scheme:dark}
+  --w5:#ff6b5e; --w33:#f5a742; --wgnd:#c6d1d8; --wsig:#6aa5ff; --wi2c:#5fcf8e; --wpv:#c08cf0; --wopt:#8796a1; --wbat:#ff8a5c; color-scheme:dark}
 
 body{background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:14px;line-height:1.5;
   padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
@@ -34,7 +34,7 @@ body{background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:14
 .card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;min-width:0}
 .card h2{font:700 16px/1 var(--f-display);text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0 0 12px}
 .dia-scroll{overflow-x:auto}
-#dia{display:block;width:100%;min-width:940px;height:auto}
+#dia{display:block;width:100%;min-width:1040px;height:auto}
 .legend{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:12px;font-size:13px}
 .legend span{display:inline-flex;align-items:center;gap:7px}
 .legend i{display:inline-block;width:22px;height:3px;border-radius:2px}
@@ -43,8 +43,8 @@ body{background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:14
 
 /* svg */
 .w{fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
-.n5v{stroke:var(--w5)} .n33{stroke:var(--w33)} .ngnd{stroke:var(--wgnd)} .nsig{stroke:var(--wsig)} .ni2c{stroke:var(--wi2c)} .npv{stroke:var(--wpv)} .nopt{stroke:var(--wopt);stroke-dasharray:6 4}
-.dot{stroke:none} .dot.n5v{fill:var(--w5)} .dot.ngnd{fill:var(--wgnd)} .dot.nsig{fill:var(--wsig)} .dot.npv{fill:var(--wpv)}
+.n5v{stroke:var(--w5)} .n33{stroke:var(--w33)} .ngnd{stroke:var(--wgnd)} .nsig{stroke:var(--wsig)} .ni2c{stroke:var(--wi2c)} .npv{stroke:var(--wpv)} .nbat{stroke:var(--wbat)} .nopt{stroke:var(--wopt);stroke-dasharray:6 4}
+.dot{stroke:none} .dot.n5v{fill:var(--w5)} .dot.ngnd{fill:var(--wgnd)} .dot.nsig{fill:var(--wsig)} .dot.npv{fill:var(--wpv)} .dot.nbat{fill:var(--wbat)}
 .sym{fill:none;stroke:var(--wgnd);stroke-width:2;stroke-linecap:round}
 .part{fill:var(--surface);stroke:var(--fg);stroke-width:1.6}
 .board{fill:var(--board);stroke:var(--fg);stroke-width:1.6}
@@ -59,7 +59,7 @@ body{background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:14
 .lbl{font:500 11.5px var(--f-body);fill:var(--fg)}
 .tiny{font:400 10.5px var(--f-mono);fill:var(--muted)}
 .fl{font:600 11px var(--f-mono)}
-.fl.n5v{fill:var(--w5);stroke:none} .fl.n33{fill:var(--w33);stroke:none}
+.fl.n5v{fill:var(--w5);stroke:none} .fl.n33{fill:var(--w33);stroke:none} .fl.nbat{fill:var(--wbat);stroke:none}
 .arr{fill:var(--fg)}
 
 /* lower grid */
@@ -96,13 +96,13 @@ ul.warn{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:8px;fo
 <div class="wrap">
   <header class="top">
     <h1>Solar Rig Wiring</h1>
-    <p>Complete connections for the single-ESP32 tracker: 5 V adapter for logic and servos, solar panel measured through the INA219 into a test load. Wire it in the order of the list, ticking each one off.</p>
+    <p>Complete connections for the single-ESP32 tracker with battery storage: the panel charges a 12 V battery through the INA219 and a charge controller, and a buck converter turns the battery into 5 V for the ESP32 and servos. Wire it in the order of the list, ticking each one off.</p>
   </header>
 
   <section class="card">
     <h2>Schematic</h2>
     <div class="dia-scroll">
-      <svg id="dia" viewBox="0 0 1200 770" role="img" aria-label="Wiring schematic of ESP32, INA219, solar panel, LDRs, DS18B20, two servos and power supply"></svg>
+      <svg id="dia" viewBox="0 0 1340 770" role="img" aria-label="Wiring schematic of ESP32, INA219, solar panel, charge controller, battery, buck converter, LDRs, DS18B20 and two servos"></svg>
     </div>
     <div class="legend">
       <span><i style="background:var(--w5)"></i>5 V</span>
@@ -111,9 +111,10 @@ ul.warn{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:8px;fo
       <span><i style="background:var(--wsig)"></i>Signal</span>
       <span><i style="background:var(--wi2c)"></i>I²C</span>
       <span><i style="background:var(--wpv)"></i>Panel current path</span>
+      <span><i style="background:var(--wbat)"></i>Battery 12 V</span>
       <span><i class="dash"></i>Optional, fit later</span>
     </div>
-    <p class="note">Labels like <b>5V</b>, <b>3V3</b> and the ground symbol mean "connect to that rail". Every ground symbol is the same common ground, and that includes panel −. Pin order shown is the common DOIT ESP32 DevKit V1 (30-pin); check your board's printed labels, as some clones swap positions.</p>
+    <p class="note">Labels like <b>5V</b>, <b>3V3</b> and the ground symbol mean "connect to that rail". Every ground symbol is the same common ground, which is the battery −. <b>BAT+</b> is the battery positive after fuse F2. Panel − goes only to the charge controller, never to ground. Pin order shown is the common DOIT ESP32 DevKit V1 (30-pin); check your board's printed labels, as some clones swap positions.</p>
   </section>
 
   <div class="grid">
@@ -129,24 +130,25 @@ ul.warn{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:8px;fo
       <section class="card">
         <h2>Bring-up order</h2>
         <ol class="steps">
-          <li><b>Rails only.</b> Wires 1–4 and 6, nothing else plugged in. Measure 4.9–5.2 V on the 5 V rail and 3.2–3.4 V on the 3V3 rail.</li>
-          <li><b>ESP32 alone.</b> Upload a blink sketch and confirm it boots from the adapter.</li>
-          <li><b>INA219.</b> Wires 7–10. Run an I²C scanner; it should find <code>0x40</code>.</li>
-          <li><b>DS18B20.</b> Wires 22–25. Read the temperature and warm the probe in your hand.</li>
-          <li><b>LDRs.</b> Wires 16–21. Print both ADC values; covering one should drop its number sharply.</li>
-          <li><b>Capacitor, then servos.</b> Wire 5 first, then 26–28. Sweep the tilt servo. Then 29–31 for the wiper.</li>
-          <li><b>Panel last.</b> Wires 11–15 in sunlight. Compare the INA219 voltage against a multimeter across the load.</li>
+          <li><b>Battery and buck.</b> Wires 1–7, ESP32 not yet connected. Turn the buck's screw until the 5 V rail reads 5.0–5.2 V.</li>
+          <li><b>ESP32.</b> Wires 8, 9 and 11. Upload a blink sketch; the 3V3 rail should read 3.2–3.4 V.</li>
+          <li><b>INA219.</b> Wires 12–15. Run <code>tests/i2c_scan</code>; it should find <code>0x40</code>.</li>
+          <li><b>Battery sense.</b> Wires 20–22. Run <code>tests/battery_check</code> and compare with a multimeter.</li>
+          <li><b>DS18B20.</b> Wires 29–32. Warm the probe in your hand and watch it rise.</li>
+          <li><b>LDRs.</b> Wires 23–28. Covering one LDR should drop its reading sharply.</li>
+          <li><b>Capacitor, then servos.</b> Wire 10 first, then 33–35 and 36–38.</li>
+          <li><b>Panel last.</b> Wires 16–19 in sunlight. The controller's charging light should come on and the INA219 should show current.</li>
         </ol>
       </section>
       <section class="card">
         <h2>Watch out for</h2>
         <ul class="warn">
-          <li><b>Panel − to ground (wire 15).</b> Without it the INA219 reads current but the voltage is garbage.</li>
-          <li><b>Servo power.</b> Servo red wires go to the 5 V rail, never the ESP32's 3V3 pin. Missing the capacitor causes random resets when servos move.</li>
-          <li><b>USB plus adapter.</b> When uploading over USB, unplug wire 3 unless your board has a diode on its USB 5 V line.</li>
-          <li><b>Hot load resistor.</b> Around 9 W in full sun. Mount it on metal, off the breadboard and away from wires.</li>
+          <li><b>Battery first, panel second.</b> Connect the battery to the controller before the panel, and disconnect the panel first. The controller detects 12 V from the battery.</li>
+          <li><b>Panel − to the controller only (wire 19).</b> Many cheap controllers switch the negative line. Tying panel − to ground bypasses them and overcharges the battery.</li>
+          <li><b>Fuse F2 near the battery.</b> A shorted 7 Ah battery can push over 100 A. Keep F2 within 15 cm of the + terminal.</li>
+          <li><b>Servo power.</b> Servo red wires go to the 5 V rail, never the ESP32's 3V3 pin. Without C1, servo moves can reset the ESP32.</li>
+          <li><b>USB plus battery.</b> When uploading over USB, unplug wire 8 (VIN) unless your board has a diode on its USB 5 V line.</li>
           <li><b>Moving cables.</b> LDR, DS18B20 and wiper leads ride on the tilting panel. Leave a slack loop at the axle for ±60° travel.</li>
-          <li><b>Breadboard width.</b> The DevKit covers most of one breadboard. Use two side by side.</li>
         </ul>
       </section>
     </div>
@@ -172,7 +174,7 @@ function ldr(x,y,h){resV(x,y,h);[0,14].forEach(o=>{el("path",{d:`M${x-24} ${y+4+
 // ESP32 board
 const L=["EN","VP","VN","D34","D35","D32","D33","D25","D26","D27","D14","D12","D13","GND","VIN"];
 const Rp=["D23","D22","TX0","RX0","D21","D19","D18","D5","TX2","RX2","D4","D2","D15","GND","3V3"];
-const used=new Set(["D34","D35","D25","D26","D27","GND","VIN","D22","D21","D19","D18","D4","3V3"]);
+const used=new Set(["D34","D35","D32","D25","D26","D27","GND","VIN","D22","D21","D19","D18","D4","3V3"]);
 const py=i=>160+i*30;
 tx(600,104,"ESP32 DevKit V1","mt","middle");
 el("rect",{x:520,y:116,width:160,height:500,rx:8,class:"board"});
@@ -182,12 +184,15 @@ el("rect",{x:584,y:604,width:32,height:16,rx:2,class:"chip"});tx(600,638,"USB","
 L.forEach((n,i)=>{const u=used.has(n);el("circle",{cx:520,cy:py(i),r:4.2,class:"pin"+(u?" on":"")});tx(532,py(i)+4,n,"pinl"+(u?" on":""));});
 Rp.forEach((n,i)=>{const u=used.has(n);el("circle",{cx:680,cy:py(i),r:4.2,class:"pin"+(u?" on":"")});tx(668,py(i)+4,n,"pinl"+(u?" on":""),"end");});
 
-// power entry + rails
+// power entry: 12 V battery -> buck converter -> rails
 el("rect",{x:36,y:648,width:136,height:92,rx:6,class:"mod"});
-tx(104,676,"5 V 2–3 A","mt","middle");tx(104,692,"adapter + DC jack","tiny","middle");
-tx(160,684,"+","lbl","middle");tx(160,714,"−","lbl","middle");
+tx(92,668,"Buck 12→5 V","mt","middle");tx(92,686,"LM2596","tiny","middle");
+tx(44,702,"IN+","pinl on");tx(44,729,"IN−","pinl on");tx(165,684,"OUT+","pinl on","end");tx(165,716,"OUT−","pinl on","end");
+W("M36 698H24V640","nbat");flagUp(24,640,"BAT+","nbat");
+W("M36 725H22","ngnd");gnd(22,725);
+tx(104,760,"Bench test: 5 V adapter on OUT instead","tiny","middle");
 W("M172 680H1062","n5v");tx(1068,684,"5 V rail","fl n5v");
-W("M172 712H1180","ngnd");tx(1068,732,"GND rail","tiny");
+W("M172 712H1215","ngnd");tx(1068,732,"GND rail","tiny");
 // ESP32 VIN, GND, 3V3
 W("M520 580H490V680","n5v");dot(490,680,"n5v");
 W("M520 550H466V674A6 6 0 0 0 466 686V712","ngnd");dot(466,712,"ngnd");
@@ -204,7 +209,11 @@ W("M440 250H426","nsig");resH(390,250,36);tx(408,238,"10 kΩ","tiny","middle");W
 // LDR west -> D35
 flagUp(358,192,"3V3","n33");W("M358 192V204","n33");ldr(358,204,44);tx(322,214,"LDR","lbl","end");tx(322,228,"west","tiny","end");
 W("M358 248V280","n33");dot(358,280,"nsig");W("M358 280H520","nsig");
-W("M358 280V290","nsig");resV(358,290,34);tx(346,312,"10 kΩ","tiny","end");W("M358 324V334","ngnd");gnd(358,334);
+W("M358 280H344","nsig");resH(308,280,36);tx(326,268,"10 kΩ","tiny","middle");W("M308 280H300","ngnd");gnd(300,280);
+// battery divider -> D32
+flagL(262,310,"BAT+","nbat");W("M262 310H286","nbat");resH(286,310,40);tx(306,332,"100 kΩ","tiny","middle");
+W("M326 310H520","nsig");dot(400,310,"nsig");
+W("M400 310V318","nsig");resV(400,318,24);tx(412,336,"27 kΩ","tiny");W("M400 342V346","ngnd");gnd(400,346);
 
 // optional motor driver -> D25/D26/D27
 el("rect",{x:190,y:356,width:140,height:146,rx:6,class:"mod opt"});
@@ -225,19 +234,31 @@ W("M680 190H840","ni2c");W("M680 280H840","ni2c");
 W("M840 220H812","n33");flagL(812,220,"3V3","n33");
 W("M840 250H812","ngnd");gnd(812,250);
 
-// Solar panel, fuse, load
-el("rect",{x:1030,y:22,width:140,height:62,rx:4,class:"mod"});
-for(let i=1;i<4;i++)el("path",{d:`M${1030+i*35} 22V84`,class:"sym",style:"stroke:var(--line)"});
-tx(1100,46,"Solar panel","mt","middle");tx(1100,62,"5–10 W · Voc ≈ 21 V","tiny","middle");
-tx(1055,79,"+","lbl","middle");tx(1145,79,"−","lbl","middle");
+// Solar panel, F1, charge controller, F2, battery
+el("rect",{x:1150,y:22,width:150,height:62,rx:4,class:"mod"});
+for(let i=1;i<4;i++)el("path",{d:`M${1150+i*37.5} 22V84`,class:"sym",style:"stroke:var(--line)"});
+tx(1225,46,"Solar panel","mt","middle");tx(1225,62,"10 W · Voc ≈ 21 V","tiny","middle");
+tx(1170,79,"+","lbl","middle");tx(1280,79,"−","lbl","middle");
 W("M990 200H1010V160","npv");
 el("rect",{x:1004,y:120,width:12,height:40,rx:2,class:"part"});el("path",{d:"M1010 116V164",class:"sym",style:"stroke-width:1.2"});
 tx(1022,138,"F1","lbl");tx(1022,152,"1 A fuse","tiny");
-W("M1010 120V108H1055V84","npv");
-W("M990 260H1100V236","npv");
-resV(1100,176,60);tx(1088,198,"R load","lbl","end");tx(1088,212,"≈33 Ω · 20 W","tiny","end");
-W("M1100 176V140H1145V84","npv");dot(1145,140,"npv");
-W("M1145 140H1180V712","ngnd");dot(1180,712,"ngnd");
+W("M1010 120V108H1170V84","npv");
+W("M1280 84V120H1190V150","npv");
+el("rect",{x:1070,y:150,width:150,height:130,rx:6,class:"mod"});
+tx(1145,206,"Charge","mt","middle");tx(1145,222,"controller","mt","middle");tx(1140,238,"PWM 10 A","tiny","middle");
+tx(1190,168,"PV−","pinl on","middle");tx(1078,264,"PV+","pinl on");
+tx(1212,194,"BAT+","pinl on","end");tx(1212,244,"BAT−","pinl on","end");
+W("M990 260H1070","npv");
+W("M1220 190H1240","nbat");
+el("rect",{x:1240,y:184,width:40,height:12,rx:2,class:"part"});el("path",{d:"M1236 190H1284",class:"sym",style:"stroke-width:1.2"});
+tx(1260,212,"F2 5 A","tiny","middle");
+W("M1280 190H1315V552","nbat");dot(1300,190,"nbat");W("M1300 190V166","nbat");flagUp(1300,166,"BAT+","nbat");
+W("M1220 240H1285V552","ngnd");
+W("M1285 500H1215V712","ngnd");dot(1285,500,"ngnd");dot(1215,712,"ngnd");
+el("rect",{x:1230,y:560,width:100,height:76,rx:4,class:"mod"});
+el("rect",{x:1306,y:552,width:18,height:8,class:"part"});el("rect",{x:1276,y:552,width:18,height:8,class:"part"});
+tx(1315,578,"+","lbl","middle");tx(1285,578,"−","lbl","middle");
+tx(1280,604,"Battery","mt","middle");tx(1280,620,"12 V 7 Ah SLA","tiny","middle");
 
 // Wiper servo -> D19
 el("rect",{x:990,y:292,width:105,height:84,rx:6,class:"mod"});
@@ -267,24 +288,32 @@ W("M860 500H836","ngnd");gnd(836,500);
 /* ---------- wire list ---------- */
 const C={r:"#cf3128",k:"#1d2329",o:"#e08a12",y:"#e2c21a",g:"#2a8a56",b:"#2563c9",p:"#8a4fc7",w:"#e9ecef",n:"#8a5a2b"};
 const groups=[
- ["Power","Adapter, rails and ESP32 supply",[
-  ["Adapter +","5 V rail","r","Through the DC jack."],
-  ["Adapter −","GND rail","k",""],
+ ["Battery and power","Connect the battery to the controller before the panel",[
+  ["Battery +","Fuse F2 (5 A)","r","Inline fuse within 15 cm of the battery terminal."],
+  ["Fuse F2","Controller BAT+","r","This fused positive is the BAT+ net."],
+  ["Battery −","Controller BAT−","k",""],
+  ["BAT+ (after F2)","Buck IN+","r",""],
+  ["Battery −","Buck IN−","k","On an LM2596, IN− and OUT− are the same ground."],
+  ["Buck OUT+","5 V rail","r","Turn the buck's screw to 5.1 V before connecting anything."],
+  ["Buck OUT−","GND rail","k",""],
   ["5 V rail","ESP32 VIN","r","Unplug while uploading over USB."],
   ["GND rail","ESP32 GND","k","Either GND pin."],
   ["C1 + / −","5 V rail / GND rail","w","470–1000 µF, 10 V or more. Stripe side is −. Fit near the servo connectors."],
   ["ESP32 3V3","3V3 rail","o","Second breadboard rail. Sensors only, never servos."]]],
- ["INA219","Power sensor, I²C address 0x40",[
+ ["INA219","Panel current sensor, I²C address 0x40",[
   ["INA219 VCC","3V3 rail","o",""],
   ["INA219 GND","GND rail","k",""],
   ["INA219 SDA","GPIO 21","g",""],
   ["INA219 SCL","GPIO 22","y",""]]],
- ["Panel circuit","Measured path. Thick wire, 0.5 mm² or more",[
+ ["Panel circuit","Thick wire, 0.5 mm² or more",[
   ["Panel +","Fuse F1 (1 A)","r","Inline fuse holder."],
   ["Fuse F1","INA219 VIN+","r","Screw terminal."],
-  ["INA219 VIN−","Load resistor","r","Screw terminal."],
-  ["Load resistor","Panel −","k","10 W panel: two 68 Ω 10 W in parallel. 5 W panel: one 68 Ω 10 W."],
-  ["Panel −","GND rail","k","Required for the voltage reading."]]],
+  ["INA219 VIN−","Controller PV+","r",""],
+  ["Panel −","Controller PV−","k","Only here. Never to the GND rail: many controllers switch the negative line."]]],
+ ["Battery sense","Divider on GPIO 32, reads up to 15 V",[
+  ["100 kΩ resistor","BAT+ → GPIO 32","r",""],
+  ["27 kΩ resistor","GPIO 32 → GND rail","k",""],
+  ["0.1 µF capacitor","GPIO 32 → GND rail","w","Smooths the reading."]]],
  ["LDR pair","Two dividers on ADC1 pins",[
   ["East LDR, leg 1","3V3 rail","o",""],
   ["East LDR, leg 2","GPIO 34","b","Junction with the 10 kΩ."],
@@ -317,7 +346,7 @@ const groups=[
 ];
 const tb=document.getElementById("wl");
 let n=0; const rows=[];
-const store={get(){try{return JSON.parse(localStorage.getItem("solarWiring")||"{}");}catch(e){return {};}},set(v){try{localStorage.setItem("solarWiring",JSON.stringify(v));}catch(e){}}};
+const store={get(){try{return JSON.parse(localStorage.getItem("solarWiringV2")||"{}");}catch(e){return {};}},set(v){try{localStorage.setItem("solarWiringV2",JSON.stringify(v));}catch(e){}}};
 const ticks=store.get();
 groups.forEach(([title,sub,items,opt])=>{
   const g=document.createElement("tr");g.className="grp";g.innerHTML=`<td colspan="5">${title}<small>${sub}</small></td>`;tb.appendChild(g);

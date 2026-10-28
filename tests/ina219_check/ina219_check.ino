@@ -1,5 +1,7 @@
-// Bring-up step 7: read panel voltage, current and power.
-// Compare the voltage against a multimeter across the load resistor.
+// Bring-up step 8: read panel voltage, current and power in sunlight.
+// With the charge controller connected, the voltage sits near battery voltage
+// (a PWM controller holds the panel there) and the current is the charging current.
+// Compare the voltage against a multimeter across the controller's PV terminals.
 #include <Wire.h>
 #include <Adafruit_INA219.h>
 

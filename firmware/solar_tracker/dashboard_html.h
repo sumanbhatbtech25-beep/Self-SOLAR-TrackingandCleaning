@@ -44,6 +44,7 @@ label{display:flex;gap:6px;align-items:center}
 <div><span>Tilt</span><b id="a">-</b> <small id="st"></small></div>
 <div><span>LDR E / W</span><b id="l">-</b></div>
 <div><span>Cleanliness</span><b id="s">-</b></div>
+<div><span>Battery</span><b id="b">-</b> <small id="bs"></small></div>
 </div></section>
 <section class="card"><h2>Power, last 5 minutes</h2><canvas id="cv"></canvas></section>
 <section class="card"><h2>Diagnostics</h2><ul id="fd"></ul></section>
@@ -54,7 +55,7 @@ label{display:flex;gap:6px;align-items:center}
 <div class="row" style="margin-top:12px"><button id="mode">Switch to manual</button>
 <input type="range" id="tilt" min="-60" max="60" value="0" disabled><b id="tv">0&deg;</b></div>
 <div id="msg"></div></section>
-<section class="card"><h2>Events</h2><ul id="log"></ul></section>
+<section class="card"><h2>Events</h2><p style="margin:0 0 8px;font-size:12px;color:var(--mut)" id="sleepnote"></p><ul id="log"></ul></section>
 </main><script>
 const $=id=>document.getElementById(id),hist=[];let mode='auto';
 const col={ok:'var(--ok)',info:'var(--info)',warn:'var(--warn)',crit:'var(--crit)'};
@@ -73,6 +74,7 @@ async function poll(){try{const d=await(await fetch('/api/status',{cache:'no-sto
  $('p').textContent=fmt(d.power,2,'W');$('pe').textContent=d.expected_power==null?'':'of '+d.expected_power.toFixed(2)+' W';
  $('t').textContent=fmt(d.panel_temp,1,'°C');$('a').textContent=(d.tilt<0?'E ':d.tilt>0?'W ':'')+Math.abs(d.tilt)+'°';
  $('st').textContent=d.wiper_busy?'cleaning':d.state.replace('_',' ');$('l').textContent=d.ldr_east+' / '+d.ldr_west;
+ if(!d.battery_enabled){$('b').textContent='-';$('bs').textContent='bench mode';}else{$('b').textContent=fmt(d.battery_voltage,2,'V');$('bs').textContent=d.battery_percent<0?'not connected':(d.battery_full?'full':'~'+d.battery_percent+'%');}
  $('s').textContent=d.soiling_ratio==null?(d.calibrated?'-':'not calibrated'):Math.round(Math.min(1,d.soiling_ratio)*100)+'%';
  const ch=$('chip');ch.textContent=d.worst==='ok'?'healthy':d.worst;ch.style.background=col[d.worst];
  $('fd').innerHTML=d.findings.map(f=>'<li class="f" style="--c:'+col[f.sev]+'"><b>'+esc(f.code)+'</b>'+esc(f.msg)+'</li>').join('');
@@ -80,6 +82,7 @@ async function poll(){try{const d=await(await fetch('/api/status',{cache:'no-sto
  $('clean').disabled=d.wiper_busy;$('auto').checked=d.auto_clean;mode=d.mode;
  $('mode').textContent=mode==='auto'?'Switch to manual':'Back to auto tracking';$('tilt').disabled=mode!=='manual';
  if(mode!=='manual'){$('tilt').value=d.tilt;$('tv').textContent=d.tilt+'°';}
+ $('sleepnote').textContent=d.night_sleep&&d.battery_enabled?'At night the tracker sleeps in 15-minute naps, so this page goes offline until sunrise.':'';
  hist.push(d.power||0);if(hist.length>150)hist.shift();draw();
 }catch(e){const ch=$('chip');ch.textContent='offline';ch.style.background='var(--crit)';}}
 $('clean').onclick=()=>post('/api/clean');$('cal').onclick=()=>post('/api/calibrate');

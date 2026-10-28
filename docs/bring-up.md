@@ -7,21 +7,32 @@ Build and test one block at a time. Each step has a small sketch in [`tests/`](.
 - Install the libraries listed in the [README](../README.md#2-install-the-libraries).
 - Set the Serial Monitor to **115200 baud**.
 - Have a multimeter ready.
+- Charge the battery before you start, or check it reads at least 12.4 V.
 
 ## Steps
 
 | Step | Wires | Test sketch | Pass when |
 |---|---|---|---|
-| 1. Rails | 1–4, 6 | — | 4.9–5.2 V on the 5 V rail, 3.2–3.4 V on the 3V3 rail, nothing else connected |
-| 2. ESP32 | — | Any blink sketch | Board boots from the adapter |
-| 3. INA219 | 7–10 | `tests/i2c_scan` | Finds a device at `0x40` |
-| 4. DS18B20 | 22–25 | `tests/ds18b20_check` | Reads room temperature, rises when you hold the probe |
-| 5. LDRs | 16–21 | `tests/ldr_check` | Covering one LDR drops its value sharply; sun reading stays below ~4000 |
-| 6. Servos | 5, then 26–31 | `tests/servo_sweep` | Each servo moves smoothly; ESP32 does not reset |
-| 7. Panel | 11–15 | `tests/ina219_check` | INA219 voltage matches a multimeter across the load within ~0.1 V |
-| 8. Full firmware | — | `firmware/solar_tracker` | Dashboard loads, panel follows a torch moved east–west |
+| 1. Battery and buck | 1–7 | — | ESP32 **not** connected. Turn the buck's screw until the 5 V rail reads 5.0–5.2 V |
+| 2. ESP32 | 8, 9, 11 | Any blink sketch | Board boots from the buck; 3V3 rail reads 3.2–3.4 V |
+| 3. INA219 | 12–15 | `tests/i2c_scan` | Finds a device at `0x40` |
+| 4. Battery sense | 20–22 | `tests/battery_check` | Printed battery voltage within ~0.1 V of a multimeter (see calibration) |
+| 5. DS18B20 | 29–32 | `tests/ds18b20_check` | Reads room temperature, rises when you hold the probe |
+| 6. LDRs | 23–28 | `tests/ldr_check` | Covering one LDR drops its value sharply; sun reading stays below ~4000 |
+| 7. Servos | 10, then 33–38 | `tests/servo_sweep` | Each servo moves smoothly; ESP32 does not reset |
+| 8. Panel | 16–19 | `tests/ina219_check` | In sunlight the controller's charging light is on and the INA219 shows current |
+| 9. Full firmware | — | `firmware/solar_tracker` | Dashboard loads, battery tile shows a voltage, panel follows a torch moved east–west |
+
+**Order matters for the charge controller:** connect the battery (wires 1–3) before the panel (wires 16–19), and disconnect the panel first. The controller decides it's a 12 V system from the battery voltage at power-up.
+
+**Bench testing without a battery:** power the 5 V rail from a 5 V adapter instead of the buck, set `BATTERY_ENABLED = false` in `config.h`, and use a load resistor (≈33 Ω, 20 W) in place of the controller to give the INA219 something to measure.
 
 ## Calibration
+
+### Battery voltage
+
+1. Run `tests/battery_check` and measure the battery terminals with a multimeter at the same time.
+2. Set `BATTERY_CAL` in `config.h` to `multimeter ÷ printed`. For example, 12.70 V ÷ 12.46 V = 1.02.
 
 ### Tilt centre and direction
 
@@ -44,17 +55,17 @@ If both LDRs read noticeably differently under the same light, swap them. If the
 ### Clean-panel baseline
 
 1. Clean the glass by hand.
-2. Wait for a sunny moment with the tracker holding still.
+2. Wait for a sunny moment with the tracker holding still **and the battery below 13.6 V**. A full battery throttles charging, so the baseline would be wrong.
 3. Open the dashboard and press **Calibrate clean baseline**.
 
-The baseline is saved in flash. After this the **Cleanliness** tile shows a percentage, and auto-clean can work.
+The baseline is saved in flash and refreshed after every cleaning cycle.
 
 ## Logging data
 
 The firmware prints one CSV line per second on Serial:
 
 ```
-ms,voltage_v,current_a,power_w,panel_temp_c,ldr_east,ldr_west,tilt_deg,state,soiling_ratio,wiper
+ms,voltage_v,current_a,power_w,panel_temp_c,battery_v,ldr_east,ldr_west,tilt_deg,state,soiling_ratio,wiper
 ```
 
 Capture it with the Arduino Serial Monitor, PlatformIO (`pio device monitor > log.csv`), or any serial terminal. Keep these logs: they are the training data for the TinyML phase.

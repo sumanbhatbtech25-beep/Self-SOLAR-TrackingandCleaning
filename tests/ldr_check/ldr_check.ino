@@ -1,4 +1,4 @@
-// Bring-up step 5: check both LDR dividers.
+// Bring-up step 6: check both LDR dividers.
 // Cover one LDR with your finger: its number should drop sharply.
 // In full sun the readings should stay below ~4000. If they sit at 4095,
 // swap the 10 kOhm divider resistors for 4.7 kOhm or 2.2 kOhm.

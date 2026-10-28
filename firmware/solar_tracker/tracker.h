@@ -20,7 +20,7 @@ struct TrackerStatus {
 };
 
 namespace Tracker {
-  void begin();
+  void begin(int initialTiltDeg = 0);   // restore the pre-sleep position
   void update();                      // call every loop(); self-timed
   void setPaused(bool paused);        // used while the wiper runs
   void setMode(TrackerMode mode);

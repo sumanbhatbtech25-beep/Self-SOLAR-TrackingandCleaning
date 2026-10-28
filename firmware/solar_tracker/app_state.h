@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include "sensors.h"
 #include "diagnostics.h"
+#include "power.h"
 
 // Small ring buffer of human-readable events shown on the dashboard.
 struct EventLog {
@@ -17,6 +18,7 @@ struct EventLog {
 
 struct AppState {
   SensorData sensors;
+  BatteryData battery;
   DiagReport diag;
   EventLog   log;
   bool       autoClean     = false;

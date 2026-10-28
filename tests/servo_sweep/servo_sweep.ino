@@ -1,4 +1,4 @@
-// Bring-up step 6: test each servo and find the "panel flat" angle.
+// Bring-up step 7: test each servo and find the "panel flat" angle.
 // Power the servos from the 5 V rail with the 470 uF capacitor fitted first.
 //
 // Type a number 0-180 in the Serial Monitor (newline ending) to move the servo

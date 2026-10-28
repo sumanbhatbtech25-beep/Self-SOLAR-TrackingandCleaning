@@ -4,6 +4,8 @@
  *  - Single-axis sun tracking from two LDRs (rule-based)
  *  - Servo wiper cleaning, manual or automatic on detected soiling
  *  - Panel power monitoring (INA219) and temperature (DS18B20)
+ *  - 12 V battery storage: voltage monitoring, low-battery protection,
+ *    deep sleep at night
  *  - Rule-based fault diagnostics
  *  - Wi-Fi dashboard and JSON API
  *
@@ -18,6 +20,7 @@
 #include "tracker.h"
 #include "cleaner.h"
 #include "diagnostics.h"
+#include "power.h"
 #include "app_state.h"
 #include "web.h"
 
@@ -35,6 +38,8 @@ static bool     wasCleaning       = false;
 static uint32_t recalibrateAt     = 0;
 static Severity lastWorst         = Severity::Ok;
 static String   lastFindingCodes;
+static uint32_t batteryLowSince   = 0;
+static uint32_t nightParkedSince  = 0;
 
 static void startWifi() {
   WiFi.setHostname(MDNS_HOSTNAME);
@@ -112,19 +117,43 @@ static void handleRecalibration(uint32_t now) {
   if (recalibrateAt && now >= recalibrateAt) {
     recalibrateAt = 0;
     const char *reason = "";
-    if (Diagnostics::calibrate(app.sensors, Tracker::status(), &reason))
+    if (Diagnostics::calibrate(app.sensors, Tracker::status(), app.battery, &reason))
       app.log.add("Clean baseline updated");
     else
       app.log.add("Baseline not updated: %s", reason);
   }
 }
 
+// Protect the battery: sustained voltage under the cut-off puts the board to sleep.
+static void handleLowBattery(uint32_t now) {
+  if (!BATTERY_ENABLED || !app.battery.present || !app.battery.critical) { batteryLowSince = 0; return; }
+  if (batteryLowSince == 0) batteryLowSince = now;
+  if (now - batteryLowSince >= BATTERY_CUTOFF_CONFIRM_MS && !Cleaner::busy()) {
+    app.log.add("Battery %.2f V: low-battery sleep", app.battery.voltage);
+    Power::deepSleep(LOW_BATTERY_SLEEP_MIN, SleepReason::LowBattery, Tracker::status().tiltDeg);
+  }
+}
+
+// Once it has been dark and the panel has parked facing sunrise for a while, nap.
+static void handleNightSleep(uint32_t now) {
+  const TrackerStatus &t = Tracker::status();
+  bool parked = app.diag.night && t.state == TrackerState::NightPark && t.tiltDeg <= -TILT_LIMIT_DEG;
+  if (!NIGHT_DEEP_SLEEP || !parked || Cleaner::busy()) { nightParkedSince = 0; return; }
+  if (nightParkedSince == 0) nightParkedSince = now;
+  if (now - nightParkedSince >= NIGHT_CONFIRM_MS) {
+    app.log.add("Night: sleeping in %lu-minute naps", (unsigned long)NIGHT_SLEEP_MIN);
+    Power::deepSleep(NIGHT_SLEEP_MIN, SleepReason::Night, t.tiltDeg);
+  }
+}
+
 static void printCsv() {
   const SensorData &s = app.sensors;
   const TrackerStatus &t = Tracker::status();
-  Serial.printf("%lu,%.3f,%.4f,%.3f,%.2f,%d,%d,%d,%s,%.3f,%d\n",
+  Serial.printf("%lu,%.3f,%.4f,%.3f,%.2f,%.2f,%d,%d,%d,%s,%.3f,%d\n",
                 (unsigned long)s.timestamp, s.busVoltage, s.current, s.power,
-                s.tempOk ? s.panelTempC : -127.0f, s.ldrEast, s.ldrWest, t.tiltDeg,
+                s.tempOk ? s.panelTempC : -127.0f,
+                isnan(app.battery.voltage) ? 0.0f : app.battery.voltage,
+                s.ldrEast, s.ldrWest, t.tiltDeg,
                 Tracker::stateName(t.state),
                 isnan(app.diag.soilingRatio) ? -1.0f : app.diag.soilingRatio,
                 Cleaner::busy() ? 1 : 0);
@@ -135,16 +164,21 @@ void setup() {
   delay(300);
   Serial.println("\nSolar Tracker ESP32 starting");
 
+  // First: may send the board straight back to sleep (low battery, or still night).
+  Power::beginEarly();
+
   if (!Sensors::begin()) app.log.add("INA219 not found on I2C");
   Diagnostics::begin();
-  Tracker::begin();
+  Tracker::begin(Power::hasSavedTilt() ? Power::savedTilt() : 0);
   Cleaner::begin();
   startWifi();
   Web::begin();
 
+  if (Power::lastSleepReason() == SleepReason::Night)      app.log.add("Morning: woke from night sleep");
+  if (Power::lastSleepReason() == SleepReason::LowBattery) app.log.add("Battery recovered, resuming");
   if (Diagnostics::baseline() > 0) app.log.add("Loaded clean baseline from flash");
   if (SERIAL_CSV_LOG)
-    Serial.println("ms,voltage_v,current_a,power_w,panel_temp_c,ldr_east,ldr_west,tilt_deg,state,soiling_ratio,wiper");
+    Serial.println("ms,voltage_v,current_a,power_w,panel_temp_c,battery_v,ldr_east,ldr_west,tilt_deg,state,soiling_ratio,wiper");
 }
 
 void loop() {
@@ -158,9 +192,12 @@ void loop() {
   if (now - lastSensorRead >= SENSOR_INTERVAL_MS) {
     lastSensorRead = now;
     Sensors::update(app.sensors);
-    Diagnostics::evaluate(app.sensors, Tracker::status(), app.diag);
+    Power::update(app.battery);
+    Diagnostics::evaluate(app.sensors, Tracker::status(), app.battery, app.diag);
     logFindingChanges();
     handleAutoClean(now);
+    handleLowBattery(now);
+    handleNightSleep(now);
     if (SERIAL_CSV_LOG) printCsv();
   }
 

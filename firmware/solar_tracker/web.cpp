@@ -33,13 +33,18 @@ namespace {
     const TrackerStatus &t = Tracker::status();
 
     String j;
-    j.reserve(2048);
+    j.reserve(2560);
     j += '{';
     j += "\"uptime_s\":"; j += millis() / 1000; j += ',';
     appendNumber(j, "voltage", s.busVoltage, 2);
     appendNumber(j, "current", s.current, 3);
     appendNumber(j, "power", s.power, 2);
     appendNumber(j, "panel_temp", s.panelTempC, 1);
+    j += "\"battery_enabled\":"; j += BATTERY_ENABLED ? "true" : "false"; j += ',';
+    appendNumber(j, "battery_voltage", app.battery.voltage, 2);
+    j += "\"battery_percent\":"; j += app.battery.percent; j += ',';
+    j += "\"battery_full\":"; j += app.battery.full ? "true" : "false"; j += ',';
+    j += "\"night_sleep\":"; j += NIGHT_DEEP_SLEEP ? "true" : "false"; j += ',';
     j += "\"ldr_east\":"; j += t.ldrEast; j += ',';
     j += "\"ldr_west\":"; j += t.ldrWest; j += ',';
     appendNumber(j, "imbalance", t.imbalance, 3);
@@ -50,6 +55,7 @@ namespace {
     j += "\"clean_runs\":"; j += Cleaner::runCount(); j += ',';
     j += "\"auto_clean\":"; j += app.autoClean ? "true" : "false"; j += ',';
     j += "\"calibrated\":"; j += d.calibrated ? "true" : "false"; j += ',';
+    appendNumber(j, "expected_current", d.expectedCurrent, 3);
     appendNumber(j, "expected_power", d.expectedPower, 2);
     appendNumber(j, "soiling_ratio", d.soilingRatio, 2);
     j += "\"worst\":"; appendJsonString(j, Diagnostics::severityName(d.worst)); j += ',';
@@ -100,7 +106,7 @@ namespace {
 
   void handleCalibrate() {
     const char *reason = "";
-    bool ok = Diagnostics::calibrate(app.sensors, Tracker::status(), &reason);
+    bool ok = Diagnostics::calibrate(app.sensors, Tracker::status(), app.battery, &reason);
     app.log.add("Calibrate: %s", reason);
     sendResult(ok ? 200 : 409, reason);
   }
