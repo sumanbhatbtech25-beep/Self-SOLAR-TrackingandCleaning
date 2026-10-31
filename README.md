@@ -1,4 +1,4 @@
-# Solar Tracker ESP32
+# ☀️ Self Solar Tracking and Cleaning (ESP32)
 
 **A low-cost smart solar panel prototype that follows the sun, cleans itself, stores its energy in a battery, measures its own output and tells you when something is wrong. Everything runs on a single ESP32.**
 
@@ -9,10 +9,35 @@
 ![Status](https://img.shields.io/badge/status-prototype%20v0.2-D98A10)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
+**[Quick start](#quick-start) · [3D model](docs/interactive/3d-model.html) · [Wiring](docs/wiring.md) · [Bill of materials](docs/bom.md) · [Bring-up guide](docs/bring-up.md) · [Diagnostics](docs/diagnostics.md)**
+
 ---
+
+## At a glance
+
+| | |
+|---|---|
+| **Tracks the sun** | Two LDRs and one servo keep the panel facing the brightest part of the sky (±60°). |
+| **Cleans itself** | A servo wiper sweeps the glass when output drops below 80 % of what the light says it should be. |
+| **Runs day and night** | A 12 V battery and night-time deep sleep give about 3 days of reserve. |
+| **Diagnoses itself** | 18 rule-based checks flag wiring, charging, battery, sensor and mechanical faults. |
+| **Talks over Wi-Fi** | A phone-friendly dashboard and JSON API, served by the ESP32 itself. No cloud needed. |
+| **Costs little** | About ₹3,000–4,700 in parts. |
+
+## Quick start
+
+```bash
+git clone https://github.com/sumanbhatbtech25-beep/Self-SOLAR-TrackingandCleaning.git
+cd Self-SOLAR-TrackingandCleaning
+cp firmware/solar_tracker/secrets.example.h firmware/solar_tracker/secrets.h   # add your Wi-Fi
+pio run -t upload && pio device monitor
+```
+
+Then open **`http://solar-tracker.local`**. No Wi-Fi configured? Join the **SolarTracker-Setup** network (password `solar1234`) and go to `http://192.168.4.1`. Full instructions are in [Getting started](#getting-started).
 
 ## Contents
 
+- [Quick start](#quick-start)
 - [Features](#features)
 - [How it works](#how-it-works)
 - [Hardware](#hardware)
@@ -21,9 +46,12 @@
 - [Dashboard and API](#dashboard-and-api)
 - [Fault diagnostics](#fault-diagnostics)
 - [Configuration](#configuration)
+- [Data logging](#data-logging)
+- [Troubleshooting](#troubleshooting)
 - [Project structure](#project-structure)
 - [Roadmap](#roadmap)
 - [Safety](#safety)
+- [Contributing](#contributing)
 - [License](#license)
 
 ## Features
@@ -47,7 +75,7 @@ Two interactive pages live in [`docs/interactive/`](docs/interactive). Download 
 - **[`3d-model.html`](docs/interactive/3d-model.html)**: an orbitable 3D model of the rig. Play a full day and night, add dust, change the battery charge and inject faults. The tracker, wiper, battery, sleep and diagnostics all respond.
 - **[`wiring-sheet.html`](docs/interactive/wiring-sheet.html)**: the schematic plus a numbered wire list you can tick off at the bench.
 
-To get live links: **Settings → Pages → Deploy from a branch → main / (root)**. The pages then open at `https://<your-username>.github.io/solar-tracker-esp32/docs/interactive/3d-model.html`.
+To get live links: **Settings → Pages → Deploy from a branch → main / (root)**. The pages then open at `https://sumanbhatbtech25-beep.github.io/Self-SOLAR-TrackingandCleaning/docs/interactive/3d-model.html`.
 
 ## How it works
 
@@ -155,8 +183,8 @@ Complete 46-wire list, energy budget and troubleshooting: [`docs/wiring.md`](doc
 ### 1. Clone
 
 ```bash
-git clone https://github.com/<your-username>/solar-tracker-esp32.git
-cd solar-tracker-esp32
+git clone https://github.com/sumanbhatbtech25-beep/Self-SOLAR-TrackingandCleaning.git
+cd Self-SOLAR-TrackingandCleaning
 ```
 
 ### 2. Install the libraries
@@ -292,10 +320,42 @@ Every pin, threshold and timing value is in [`firmware/solar_tracker/config.h`](
 | `DIAG_SOILING_RATIO` | `0.80` | Auto-clean fires too often or too late |
 | `SERIAL_CSV_LOG` | `true` | You want a quiet Serial Monitor |
 
+## Data logging
+
+With `SERIAL_CSV_LOG = true`, the firmware prints one CSV line per second at 115200 baud:
+
+```
+ms,voltage_v,current_a,power_w,panel_temp_c,battery_v,ldr_east,ldr_west,tilt_deg,state,soiling_ratio,wiper
+```
+
+Save a session straight to a file with PlatformIO:
+
+```bash
+pio device monitor > log.csv
+```
+
+Keep these logs. They are the data for the tracked-vs-fixed comparison and the training set for the TinyML phase.
+
+## Troubleshooting
+
+| Symptom | Likely cause |
+|---|---|
+| Battery reads 0 V on the dashboard | Divider not connected to GPIO 32 |
+| Battery reading differs from a multimeter | Set `BATTERY_CAL` in `config.h` |
+| Controller's charging light never comes on | Battery connected after the panel, or PV wires swapped |
+| ESP32 resets when a servo moves | Missing bulk capacitor, or buck converter rated under 2 A |
+| LDRs read 4095 in sun | Divider resistor too large. Try 4.7 kΩ or 2.2 kΩ |
+| DS18B20 reads −127 | Missing 4.7 kΩ pull-up or wrong data wire |
+| Panel turns away from the sun | Set `TILT_INVERT = true` in `config.h` |
+| `solar-tracker.local` doesn't open | Use the IP printed on Serial (some Android phones don't support mDNS) |
+| Dashboard offline at night | Normal with `NIGHT_DEEP_SLEEP = true` |
+
+More symptoms, with wire numbers: [`docs/wiring.md#common-problems`](docs/wiring.md#common-problems).
+
 ## Project structure
 
 ```
-solar-tracker-esp32/
+Self-SOLAR-TrackingandCleaning/
 ├── firmware/solar_tracker/     Main firmware (Arduino sketch folder, PlatformIO src)
 │   ├── solar_tracker.ino       Setup, main loop, Wi-Fi, auto-clean, sleep, CSV logging
 │   ├── config.h                Pins, thresholds, timings
@@ -365,6 +425,21 @@ Progress is tracked here and in [`CHANGELOG.md`](CHANGELOG.md).
 - Keep the INA219 bus voltage under 26 V. Check your panel's Voc before connecting.
 - Servos can pinch fingers. Unplug servo power before adjusting the linkage.
 - This is a bench and outdoor test prototype, not weatherproof. Bring the electronics in when it rains.
+
+## Contributing
+
+Ideas, bug reports and build photos are welcome.
+
+1. Open an [issue](https://github.com/sumanbhatbtech25-beep/Self-SOLAR-TrackingandCleaning/issues) describing the bug or idea.
+2. Fork the repo and create a branch for your change.
+3. Keep pins and thresholds in `config.h`, and test on hardware with the sketches in [`tests/`](tests) where you can.
+4. Add a line to [`CHANGELOG.md`](CHANGELOG.md) and open a pull request.
+
+## Author
+
+**Suman Bhat** · [@sumanbhatbtech25-beep](https://github.com/sumanbhatbtech25-beep)
+
+If this project helps you, give it a ⭐ on GitHub.
 
 ## License
 

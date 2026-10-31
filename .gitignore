@@ -1,0 +1,10 @@
+# Wi-Fi credentials (copy from secrets.example.h)
+firmware/solar_tracker/secrets.h
+
+# PlatformIO
+.pio/
+.vscode/
+
+# Logs
+*.log
+log*.csv
