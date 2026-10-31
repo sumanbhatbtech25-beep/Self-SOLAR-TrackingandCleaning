@@ -13,6 +13,7 @@
 
 ## Contents
 
+- [Quick start](#quick-start)
 - [Features](#features)
 - [How it works](#how-it-works)
 - [Hardware](#hardware)
@@ -21,10 +22,28 @@
 - [Dashboard and API](#dashboard-and-api)
 - [Fault diagnostics](#fault-diagnostics)
 - [Configuration](#configuration)
+- [Serial CSV log](#serial-csv-log)
+- [Troubleshooting](#troubleshooting)
 - [Project structure](#project-structure)
 - [Roadmap](#roadmap)
 - [Safety](#safety)
+- [Contributing](#contributing)
 - [License](#license)
+
+## Quick start
+
+Already have an ESP32 and want to see it run? Four commands:
+
+```bash
+git clone https://github.com/sumanbhatbtech25-beep/Self-SOLAR-TrackingandCleaning.git
+cd Self-SOLAR-TrackingandCleaning
+cp firmware/solar_tracker/secrets.example.h firmware/solar_tracker/secrets.h   # then edit your Wi-Fi details
+pio run -t upload && pio device monitor
+```
+
+Then open `http://solar-tracker.local`. Details are in [Getting started](#getting-started).
+
+**Prerequisites:** an ESP32 DevKit V1, a USB cable, and either [PlatformIO](https://platformio.org/) or Arduino IDE 2.x. For the full build you also need the parts in the [Hardware](#hardware) table and basic wiring skills.
 
 ## Features
 
@@ -47,7 +66,7 @@ Two interactive pages live in [`docs/interactive/`](docs/interactive). Download 
 - **[`3d-model.html`](docs/interactive/3d-model.html)**: an orbitable 3D model of the rig. Play a full day and night, add dust, change the battery charge and inject faults. The tracker, wiper, battery, sleep and diagnostics all respond.
 - **[`wiring-sheet.html`](docs/interactive/wiring-sheet.html)**: the schematic plus a numbered wire list you can tick off at the bench.
 
-To get live links: **Settings → Pages → Deploy from a branch → main / (root)**. The pages then open at `https://<your-username>.github.io/solar-tracker-esp32/docs/interactive/3d-model.html`.
+To get live links: **Settings → Pages → Deploy from a branch → main / (root)**. The pages then open at `https://<your-username>.github.io/Self-SOLAR-TrackingandCleaning/docs/interactive/3d-model.html`.
 
 ## How it works
 
@@ -155,8 +174,8 @@ Complete 46-wire list, energy budget and troubleshooting: [`docs/wiring.md`](doc
 ### 1. Clone
 
 ```bash
-git clone https://github.com/<your-username>/solar-tracker-esp32.git
-cd solar-tracker-esp32
+git clone https://github.com/sumanbhatbtech25-beep/Self-SOLAR-TrackingandCleaning.git
+cd Self-SOLAR-TrackingandCleaning
 ```
 
 ### 2. Install the libraries
@@ -292,10 +311,43 @@ Every pin, threshold and timing value is in [`firmware/solar_tracker/config.h`](
 | `DIAG_SOILING_RATIO` | `0.80` | Auto-clean fires too often or too late |
 | `SERIAL_CSV_LOG` | `true` | You want a quiet Serial Monitor |
 
+## Serial CSV log
+
+With `SERIAL_CSV_LOG` on, the board prints one line per second at 115200 baud. Capture it with `pio device monitor | tee log.csv` and open it in a spreadsheet or pandas.
+
+| Column | Unit | Meaning |
+|---|---|---|
+| `ms` | ms | Time since boot |
+| `voltage_v` | V | Panel voltage (INA219) |
+| `current_a` | A | Panel current |
+| `power_w` | W | Panel power |
+| `panel_temp_c` | °C | DS18B20 reading (`-127` if the sensor is missing) |
+| `battery_v` | V | Battery voltage (`0` if unavailable) |
+| `ldr_east`, `ldr_west` | 0–4095 | Raw ADC readings |
+| `tilt_deg` | ° | Current tilt (−60 east to +60 west) |
+| `state` | text | Tracker state, e.g. `holding` |
+| `soiling_ratio` | ratio | Measured vs. expected current (`-1` if not calibrated) |
+| `wiper` | 0/1 | 1 while the wiper is running |
+
+## Troubleshooting
+
+| Symptom | Likely cause and fix |
+|---|---|
+| `solar-tracker.local` does not load | mDNS is not supported on some Android versions and networks. Use the IP printed on Serial, or join the **SolarTracker-Setup** access point and open `http://192.168.4.1`. |
+| Dashboard disappears at night | Night deep sleep is working as designed. Set `NIGHT_DEEP_SLEEP` to `false` in `config.h` to stay online. |
+| Panel turns away from the light | Set `TILT_INVERT` to `true`. |
+| Panel hunts back and forth | Raise `TRACK_DEADBAND`, and check the shade wall separates the two LDRs. |
+| `INA219_MISSING` at boot | Check SDA/SCL on GPIO 21/22 and 3V3 power. Run `tests/i2c_scan`. |
+| Battery reading differs from a multimeter | Adjust `BATTERY_CAL` (see [`docs/bring-up.md`](docs/bring-up.md)). |
+| `SOILING` fires on a clean panel | Recalibrate the baseline in full sun, or lower `DIAG_SOILING_RATIO`. |
+| Upload fails or board resets | Unplug the 5 V → VIN wire while flashing over USB, and check the supply can handle servo current. |
+
+More in [`docs/wiring.md`](docs/wiring.md) and [`docs/diagnostics.md`](docs/diagnostics.md).
+
 ## Project structure
 
 ```
-solar-tracker-esp32/
+Self-SOLAR-TrackingandCleaning/
 ├── firmware/solar_tracker/     Main firmware (Arduino sketch folder, PlatformIO src)
 │   ├── solar_tracker.ino       Setup, main loop, Wi-Fi, auto-clean, sleep, CSV logging
 │   ├── config.h                Pins, thresholds, timings
@@ -365,6 +417,14 @@ Progress is tracked here and in [`CHANGELOG.md`](CHANGELOG.md).
 - Keep the INA219 bus voltage under 26 V. Check your panel's Voc before connecting.
 - Servos can pinch fingers. Unplug servo power before adjusting the linkage.
 - This is a bench and outdoor test prototype, not weatherproof. Bring the electronics in when it rains.
+
+## Contributing
+
+Issues and pull requests are welcome, especially build photos, measured energy data and tested alternative parts. Before opening a PR:
+
+1. Make sure the firmware compiles with `pio run`.
+2. Keep tunable values in `config.h` rather than hard-coding them.
+3. Update the README, docs and [`CHANGELOG.md`](CHANGELOG.md) if behaviour changes.
 
 ## License
 
