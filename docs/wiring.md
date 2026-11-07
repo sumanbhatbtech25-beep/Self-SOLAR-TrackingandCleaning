@@ -2,6 +2,8 @@
 
 ![Wiring schematic](images/wiring-schematic.svg)
 
+> The diagram shows the current demo build (12 V adapter, 4.4 Ω test load, ACS712 + INA219, 4 LDRs, photo transistor, DHT11, DS18B20). The text below describes the earlier battery version and will be updated with the firmware.
+
 For an interactive version with a tick-off wire list, open [`interactive/wiring-sheet.html`](interactive/wiring-sheet.html) in a browser.
 
 ## Power plan

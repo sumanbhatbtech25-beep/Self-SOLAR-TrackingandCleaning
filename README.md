@@ -132,21 +132,26 @@ Full list with buying notes: [`docs/bom.md`](docs/bom.md).
 
 ![Wiring schematic](docs/images/wiring-schematic.svg)
 
+The diagram shows the **current build, set up for the demo**: a 12 V 2 A adapter powers everything, and the panels drive a 4.4 Ω test load through both current sensors. The text in `docs/wiring.md` still describes the earlier battery version and will be updated with the firmware.
+
 | ESP32 pin | Connects to |
 |---|---|
-| VIN | 5 V rail (buck converter output) |
-| GND | Common ground = battery − |
-| 3V3 | INA219, LDR dividers, DS18B20 |
-| GPIO 4 | DS18B20 data + 4.7 kΩ pull-up to 3V3 |
+| VIN | 5 V rail (Buck A), or USB power (never both) |
+| GND | Common ground = adapter − |
+| 3V3 | INA219, DHT11, DS18B20, LDRs, photo transistor |
+| GPIO 4 | DS18B20 data + 10 kΩ pull-up to 3V3 |
 | GPIO 18 | Tilt servo signal |
 | GPIO 19 | Wiper servo signal |
 | GPIO 21 / 22 | INA219 SDA / SCL |
-| GPIO 32 | Battery divider (100 kΩ from BAT+, 27 kΩ to GND) |
-| GPIO 34 / 35 | East / west LDR dividers (10 kΩ to GND) |
+| GPIO 23 | DHT11 data |
+| GPIO 25 | Relay IN1: panels → test load, or disconnected for the self-test |
+| GPIO 26 | Relay IN2: 12 V to Buck B (servo power) |
+| GPIO 33 | Supply voltage sense (21.3 kΩ + 10 kΩ from +12 V, 10 kΩ to GND) |
+| GPIO 34 / 35 | East / west LDR pairs (10 kΩ to GND) |
+| GPIO 36 (VP) | ACS712 output through a 10 kΩ / 10 kΩ divider |
+| GPIO 39 (VN) | Photo transistor (10 kΩ to GND) |
 
-The panel feeds the charge controller through the INA219, and the controller charges the battery. The buck converter is fed straight from the battery, after fuse F2, so the ESP32 has one solid ground whichever controller you buy.
-
-> **Panel − connects only to the controller's PV− terminal, never to ground.** Many cheap controllers switch the negative line, and a ground link would bypass them and overcharge the battery.
+The panels (8 × 70 × 70 mm, 4 in series × 2 strings) feed ACS712 → INA219 → relay 1 → test load. Buck A (5.00 V) powers the ESP32, relay module and ACS712; Buck B (6.0 V) powers only the two MG996R servos, through relay 2.
 
 Complete 46-wire list, energy budget and troubleshooting: [`docs/wiring.md`](docs/wiring.md).
 
