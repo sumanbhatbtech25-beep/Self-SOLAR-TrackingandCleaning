@@ -51,7 +51,6 @@ input{min-width:0;flex:1}
 <div class="row">
 <button class="p" onclick="cmd('clean')">Clean now</button>
 <button onclick="cmd('calibrate')">Calibrate (clean panel)</button>
-<button onclick="cmd('selftest')">Run self-test</button>
 <button id="auto" onclick="cmd(autoOn?'auto off':'auto on')">Auto-clean</button>
 <button onclick="cmd('mode auto')">Track</button>
 <button onclick="cmd('mode fixed 0')">Fixed flat</button>
@@ -61,6 +60,16 @@ input{min-width:0;flex:1}
 <input id="mrk" placeholder="mark, e.g. inject_ldr"><button onclick="cmd('mark '+mrk.value)">Mark</button>
 </div>
 <p id="msg"></p></section>
+<section class="card"><h2>Tests</h2>
+<div class="row">
+<button onclick="cmd('test sensors')">Sensor test</button>
+<button onclick="cmd('selftest')">Current sensors (relay)</button>
+<button onclick="cmd('test tilt')">Tilt test</button>
+<button onclick="cmd('test wiper')">Wiper test</button>
+<button class="p" onclick="cmd('test full')">Full test</button>
+<button onclick="cmd('stop')">Stop</button>
+</div>
+<p id="tst" style="margin:10px 0 0"></p></section>
 </main><script>
 let autoOn=false;const $=id=>document.getElementById(id);
 const f=(x,d,u)=>x==null?'-':x.toFixed(d)+u;
@@ -73,6 +82,7 @@ $('tilt').textContent=s.tilt+'° '+s.mode;$('ldr').textContent=s.ldr_a+' / '+s.l
 $('air').textContent=f(s.air_c,1,'°C')+' / '+f(s.humidity,0,'%');$('sup').textContent=f(s.supply_v,2,' V');$('tr').textContent=s.trusted;$('lab').textContent=s.label;
 autoOn=s.auto_clean;$('auto').textContent='Auto-clean: '+(autoOn?'ON':'off');
 $('st').textContent='Self-test: '+s.selftest+(s.wiper?'  ·  wiper running':'')+(s.demo?'  ·  demo mode':'')+'  ·  ThingSpeak: '+s.cloud;
+$('tst').textContent='Last test: '+s.test+(s.test_running?'  (running)':'');
 $('faults').innerHTML=s.faults.length?s.faults.map(x=>'<li><b>'+x.code+'</b>'+x.msg+'</li>').join(''):'<li style="border-color:var(--ok)">none</li>';
 }catch(e){$('chip').textContent='offline';$('chip').style.background='var(--mut)'}}
 poll();setInterval(poll,1000);

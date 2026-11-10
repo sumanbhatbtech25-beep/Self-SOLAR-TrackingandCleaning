@@ -8,23 +8,26 @@
 namespace {
   Servo servo;
   TrackStatus st;
+  int  target = 0;          // where the tilt is heading (degrees from flat)
+  int  modeAngle = 0;       // the angle held in Fixed / Manual mode
+  bool ovr = false;         // the wiper or a test has taken over the tilt
+  int  ovrAngle = 0;
+  uint32_t lastSlew = 0;
+  uint32_t powerOnMs = 0;
   uint32_t darkSince = 0;
   // Stall check: where the current off-target run started.
   bool  runActive = false;
   int   runAngle0 = 0;
   float runImb0 = 0;
 
-  void moveTo(int angle) {
-    angle = constrain(angle, -TILT_RANGE_DEG, TILT_RANGE_DEG);
-    st.atLimit = (abs(angle) >= TILT_RANGE_DEG);
-    if (angle == st.angle) return;
-    if (!Relays::servoPower()) {          // normal mode: power up just before moving
-      Relays::setServoPower(true);
-      delay(150);
-    }
-    st.angle = angle;
-    servo.write(TILT_FLAT_DEG + angle);
-    st.lastMoveMs = millis();
+  int clampTilt(int a) { return constrain(a, -TILT_RANGE_DEG, TILT_RANGE_DEG); }
+
+  void writeServo(int angle) { servo.write(constrain(TILT_FLAT_DEG + angle, 0, 180)); }
+
+  // Set a new target; service() moves there one degree at a time.
+  void aim(int angle) {
+    target = clampTilt(angle);
+    st.atLimit = abs(target) >= TILT_RANGE_DEG;
   }
 
   void checkStall(float imb) {
@@ -44,8 +47,9 @@ namespace Tracker {
 void begin() {
   servo.setPeriodHertz(50);
   servo.attach(PIN_SERVO_TILT, 500, 2500);
-  servo.write(TILT_FLAT_DEG);
+  writeServo(0);
   st.angle = 0;
+  target = 0;
 }
 
 const TrackStatus &status() { return st; }
@@ -62,7 +66,42 @@ void setMode(TrackMode m, int angle) {
   st.mode = m;
   runActive = false;
   st.stalled = false;
-  if (m != TrackMode::Auto) moveTo(angle);
+  if (m != TrackMode::Auto) {
+    modeAngle = clampTilt(angle);
+    if (!ovr) aim(modeAngle);
+  }
+}
+
+void setOverride(bool on, int angle) {
+  ovr = on;
+  ovrAngle = clampTilt(angle);
+  runActive = false;
+  st.stalled = false;
+  if (on) {
+    aim(ovrAngle);
+  } else if (st.mode != TrackMode::Auto) {
+    aim(modeAngle);                 // back to the fixed / manual angle
+  } else {
+    aim(st.angle);                  // auto: tracking carries on from here
+  }
+}
+
+bool overridden() { return ovr; }
+bool settled()    { return st.angle == target; }
+
+void service() {
+  if (st.angle == target || millis() - lastSlew < TILT_SLEW_MS) return;
+  if (!Relays::servoPower()) {      // normal mode: power up, then wait 150 ms before moving
+    Relays::setServoPower(true);
+    powerOnMs = millis();
+    st.lastMoveMs = millis();
+    return;
+  }
+  if (millis() - powerOnMs < 150) return;
+  lastSlew = millis();
+  st.angle += (target > st.angle) ? 1 : -1;
+  writeServo(st.angle);
+  st.lastMoveMs = millis();
 }
 
 void update(bool paused) {
@@ -72,15 +111,15 @@ void update(bool paused) {
   st.imbalance = sum > 0 ? float(a - b) / sum : 0;
   st.dark = sum < LDR_DARK_LEVEL;
 
-  if (st.mode != TrackMode::Auto || paused) return;
+  if (st.mode != TrackMode::Auto || paused || ovr) return;
 
   if (st.dark) {
     runActive = false;
     if (!DEMO_MODE) {
       if (darkSince == 0) darkSince = millis();
-      if (millis() - darkSince > NIGHT_CONFIRM_MS) moveTo(0);   // night: park flat
+      if (millis() - darkSince > NIGHT_CONFIRM_MS) aim(0);    // night: park flat
     }
-    return;                                                     // demo: just hold still
+    return;                                                   // demo: just hold still
   }
   darkSince = 0;
 
@@ -89,7 +128,7 @@ void update(bool paused) {
   int step = (DEMO_MODE && fabsf(st.imbalance) > TRACK_FAST_ABOVE) ? 2 : 1;
   int dir = (st.imbalance > 0) ? 1 : -1;
   if (TRACK_INVERT) dir = -dir;
-  moveTo(st.angle + dir * step);
+  aim(st.angle + dir * step);
 }
 
 }  // namespace Tracker

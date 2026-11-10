@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Solar Tracker Remote</title>
+<!--
+  Phone page for the Solar Tracker: reads both ThingSpeak channels and sends
+  commands / tests through ThingSpeak TalkBack. Works from anywhere with internet.
+  Your channel IDs and keys are typed in once (Settings) and saved only in this
+  phone's browser; they are never part of this file.
+  Tip: you can also open it as  index.html#live=ID,READKEY&health=ID,READKEY&tb=ID,KEY
+-->
+<style>
+:root{--bg:#eef2f4;--card:#fff;--fg:#15222c;--mut:#5a6a75;--line:#cdd6dc;--acc:#d98a10;--ok:#2c8553;--crit:#c0402c;--warn:#b8730a}
+@media(prefers-color-scheme:dark){:root{--bg:#0e161c;--card:#15212a;--fg:#e2e9ee;--mut:#93a3ae;--line:#283742;--acc:#f2a93b;--ok:#4cc187;--crit:#ef6a55;--warn:#e9a63a;color-scheme:dark}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,sans-serif;padding:14px 16px 40px}
+main{max-width:720px;margin:0 auto;display:grid;gap:12px}
+header{display:flex;justify-content:space-between;align-items:center;gap:8px}
+h1{font-size:20px;margin:0}.chip{padding:3px 10px;border-radius:99px;font-size:12px;font-weight:600;color:#fff;background:var(--mut);white-space:nowrap}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
+h2{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--mut);margin:0 0 10px}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.tiles div{background:var(--card);padding:9px 10px}.tiles span{display:block;font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.05em}
+.tiles b{font:500 18px ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums}
+.btns{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+button,input{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:8px;padding:11px 12px;min-height:44px}
+button{font-weight:600;cursor:pointer;text-align:left}button.p{background:var(--acc);border-color:var(--acc);color:#1d1404}
+button small{display:block;font-weight:400;color:var(--mut);font-size:12px}button.p small{color:#3d2a08}
+button:disabled{opacity:.5}
+.row{display:flex;gap:8px;flex-wrap:wrap}.row input{flex:1;min-width:0}
+.st{font-size:14px;margin:6px 0 0;overflow-wrap:anywhere}.st b{color:var(--mut);font-weight:600}
+#msg{min-height:1.4em;color:var(--mut);font-size:14px;margin:10px 0 0}
+svg{width:100%;height:90px;display:block}
+label{display:block;font-size:13px;color:var(--mut);margin:8px 0 3px}
+details summary{cursor:pointer;color:var(--mut)}
+</style></head><body><main>
+<header><h1>Solar Tracker</h1><span class="chip" id="chip">not set up</span></header>
+
+<section class="card"><h2>Live</h2><div class="tiles" id="liveTiles"></div>
+<svg id="spark" viewBox="0 0 300 90" preserveAspectRatio="none" aria-label="Power, last readings"></svg>
+<p class="st"><b>Faults:</b> <span id="faults">-</span></p>
+<p class="st" style="color:var(--mut);font-size:12px" id="ageLive"></p></section>
+
+<section class="card"><h2>Health</h2><div class="tiles" id="healthTiles"></div>
+<p class="st"><b>Status:</b> <span id="hstatus">-</span></p>
+<p class="st" style="color:var(--mut);font-size:12px" id="ageHealth"></p></section>
+
+<section class="card"><h2>Cleaning and control</h2><div class="btns">
+<button class="p" data-c="CLEAN">Clean now<small>levels panel, 2 passes</small></button>
+<button data-c="STOP">Stop<small>wiper parks, tests end</small></button>
+<button data-c="AUTOCLEAN_ON">Auto-clean on<small>cleans when dust confirmed</small></button>
+<button data-c="AUTOCLEAN_OFF">Auto-clean off</button>
+<button data-c="TRACK_AUTO">Track light</button>
+<button data-c="PARK_FLAT">Park flat</button>
+<button data-c="CALIBRATE">Calibrate<small>clean panel, steady light</small></button>
+<button data-c="UPLOAD_NOW">Refresh readings<small>upload now</small></button>
+</div></section>
+
+<section class="card"><h2>Tests</h2><div class="btns">
+<button data-c="SENSOR_TEST">Sensor test<small>every sensor once</small></button>
+<button data-c="SELF_TEST">Current sensors<small>relay self-test, 5 s</small></button>
+<button data-c="TILT_TEST">Tilt test<small>sweep, 15 s</small></button>
+<button data-c="WIPER_TEST">Wiper test<small>one pass</small></button>
+<button class="p" data-c="FULL_TEST">Full test<small>all of the above, 40 s</small></button>
+<button data-c="REBOOT">Restart ESP32</button>
+</div>
+<div class="row" style="margin-top:10px"><input id="custom" placeholder="any command, e.g. tilt 20 or label E2_s1"><button id="sendCustom" style="text-align:center">Send</button></div>
+<p id="msg"></p></section>
+
+<section class="card"><details id="setup"><summary>Settings (ThingSpeak channel IDs and keys)</summary>
+<label>Live channel ID</label><input id="liveId" inputmode="numeric">
+<label>Live channel Read API key</label><input id="liveKey">
+<label>Health channel ID</label><input id="healthId" inputmode="numeric">
+<label>Health channel Read API key</label><input id="healthKey">
+<label>TalkBack ID</label><input id="tbId" inputmode="numeric">
+<label>TalkBack API key</label><input id="tbKey">
+<div class="row" style="margin-top:12px"><button id="save" class="p" style="text-align:center">Save</button></div>
+<p style="font-size:12px;color:var(--mut)">Saved only in this browser on this phone.</p>
+</details></section>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const LIVE=[['Power','W',3],['Panel voltage','V',2],['Current','mA',0],['Light','mV',0],['LDR A','',0],['LDR B','',0],['Tilt','°',0],['Cleanliness','%',0]];
+const HEALTH=[['Panel temp','°C',1],['Air temp','°C',1],['Humidity','%',0],['Supply','V',2],['INA219','mA',0],['ACS712','mA',0],['Clean (I only)','%',0],['Faults','',0]];
+const KEYS=['liveId','liveKey','healthId','healthKey','tbId','tbKey'];
+let cfg={};
+function load(){try{cfg=JSON.parse(localStorage.getItem('solarRemote')||'{}')}catch(e){cfg={}}
+  const h=new URLSearchParams(location.hash.slice(1));
+  if(h.get('live')){[cfg.liveId,cfg.liveKey]=h.get('live').split(',')}
+  if(h.get('health')){[cfg.healthId,cfg.healthKey]=h.get('health').split(',')}
+  if(h.get('tb')){[cfg.tbId,cfg.tbKey]=h.get('tb').split(',')}
+  if(location.hash){store();history.replaceState(null,'',location.pathname)}
+  KEYS.forEach(k=>$(k).value=cfg[k]||'');
+  if(!cfg.liveId)$('setup').open=true;}
+function store(){try{localStorage.setItem('solarRemote',JSON.stringify(cfg))}catch(e){}}
+$('save').onclick=()=>{KEYS.forEach(k=>cfg[k]=$(k).value.trim());store();$('setup').open=false;refresh()};
+function tiles(el,defs){el.innerHTML=defs.map((d,i)=>`<div><span>${d[0]}</span><b id="${el.id}${i}">-</b></div>`).join('')}
+tiles($('liveTiles'),LIVE);tiles($('healthTiles'),HEALTH);
+function ago(t){const s=Math.round((Date.now()-new Date(t))/1000);return s<90?s+' s ago':Math.round(s/60)+' min ago'}
+async function feed(id,key,n){const r=await fetch(`https://api.thingspeak.com/channels/${id}/feeds.json?results=${n}&status=true${key?'&api_key='+key:''}`);if(!r.ok)throw new Error(r.status);return r.json()}
+// Latest non-empty value of each field (a field is left empty when its sensor has no reading).
+function latest(feeds,f){for(let i=feeds.length-1;i>=0;i--){const v=feeds[i]['field'+f];if(v!==null&&v!==''&&v!==undefined)return parseFloat(v)}return null}
+function show(prefix,defs,feeds){defs.forEach((d,i)=>{const v=latest(feeds,i+1);$(prefix+i).textContent=v==null||isNaN(v)?'-':v.toFixed(d[2])+(d[1]?' '+d[1]:'')})}
+function spark(feeds){const pts=feeds.map(f=>parseFloat(f.field1)).filter(v=>!isNaN(v));const svg=$('spark');if(pts.length<2){svg.innerHTML='';return}
+  const mx=Math.max(...pts,0.001),w=300/(pts.length-1);
+  const d=pts.map((v,i)=>`${i?'L':'M'}${(i*w).toFixed(1)},${(86-80*v/mx).toFixed(1)}`).join('');
+  svg.innerHTML=`<path d="${d}" fill="none" stroke="var(--acc)" stroke-width="2" vector-effect="non-scaling-stroke"/><text x="2" y="12" font-size="11" fill="var(--mut)">power, max ${mx.toFixed(2)} W</text>`}
+async function refresh(){
+  if(!cfg.liveId&&!cfg.healthId){$('chip').textContent='not set up';return}
+  try{if(cfg.liveId){const j=await feed(cfg.liveId,cfg.liveKey,40),fs=j.feeds||[];show('liveTiles',LIVE,fs);spark(fs);
+      const last=fs[fs.length-1];if(last){$('faults').textContent=last.status||'-';$('ageLive').textContent='Updated '+ago(last.created_at);
+      const old=(Date.now()-new Date(last.created_at))>180000,ok=!last.status||last.status==='OK';
+      $('chip').textContent=old?'offline':ok?'OK':'fault';$('chip').style.background=old?'var(--mut)':ok?'var(--ok)':'var(--crit)'}}
+    if(cfg.healthId){const j=await feed(cfg.healthId,cfg.healthKey,10),fs=j.feeds||[];show('healthTiles',HEALTH,fs);
+      const last=fs[fs.length-1];if(last){$('hstatus').textContent=last.status||'-';$('ageHealth').textContent='Updated '+ago(last.created_at)}}
+  }catch(e){$('chip').textContent='no data';$('chip').style.background='var(--mut)'}}
+async function send(c){
+  if(!cfg.tbId||!cfg.tbKey){$('msg').textContent='Add the TalkBack ID and key in Settings first.';$('setup').open=true;return}
+  $('msg').textContent='Sending '+c+' ...';
+  try{await fetch(`https://api.thingspeak.com/talkbacks/${cfg.tbId}/commands.json`,{method:'POST',mode:'no-cors',
+      body:new URLSearchParams({api_key:cfg.tbKey,command_string:c})});
+    $('msg').textContent='Sent '+c+'. The rig picks it up within 5 s; its reply shows under Health → Status in about 20 s.';
+    setTimeout(refresh,20000);setTimeout(refresh,35000);
+  }catch(e){$('msg').textContent='Could not reach ThingSpeak: check the phone\'s internet.'}}
+document.querySelectorAll('button[data-c]').forEach(b=>b.onclick=()=>{
+  if(b.dataset.c==='REBOOT'&&!confirm('Restart the ESP32?'))return;send(b.dataset.c)});
+$('sendCustom').onclick=()=>{const v=$('custom').value.trim();if(v){send(v);$('custom').value=''}};
+load();refresh();setInterval(refresh,15000);
+</script></body></html>

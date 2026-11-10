@@ -8,6 +8,20 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 ### Planned
 - Build the DIY frame, fit the battery system and bring the hardware up on the bench (see README roadmap)
 
+## [0.6.0] - 2026-11-11
+
+### Added
+- Every reading goes to ThingSpeak: a LIVE channel (power, voltage, current, light, both LDR pairs, tilt, cleanliness) and a HEALTH channel (panel and air temperature, humidity, supply, both current sensors, current-only cleanliness, fault count), with faults and test / command results in the status text
+- Remote tests from the phone, dashboard or Serial: `test sensors`, `test tilt`, `test wiper`, `test full`, plus `stop`, `upload`, `reboot`; matching TalkBack commands; any other TalkBack text runs as a Serial command
+- Immediate re-upload (as soon as ThingSpeak allows) after a phone command, a test, a self-test or a cleaning cycle
+- Phone page `docs/phone/index.html`: both channels, power sparkline, buttons for every command and test
+- Tests card on the ESP32 dashboard
+
+### Changed
+- Cleaning levels the panel under the fixed wiper first (`CLEAN_AT_FLAT`), then tracking or the fixed angle resumes
+- Every tilt move is slewed at `TILT_SLEW_MS` per degree, so mode changes no longer jerk the board
+- The cloud task reads a mutex-protected snapshot instead of shared `String`s, so the two cores never touch the same string
+
 ## [0.5.1] - 2026-11-11
 
 ### Added

@@ -8,6 +8,7 @@
 #include "commands.h"
 #include "dashboard_html.h"
 #include "cloud.h"
+#include "tests.h"
 #include <WiFi.h>
 #include <WebServer.h>
 #include <ESPmDNS.h>
@@ -40,7 +41,7 @@ namespace {
     const SensorData &s = app.s;
     const TrackStatus &t = Tracker::status();
     String j;
-    j.reserve(1400);
+    j.reserve(1800);
     j += '{';
     jnum(j, "uptime_s", millis() / 1000.0f, 0);
     jnum(j, "panel_v", s.panelV, 2);
@@ -64,6 +65,9 @@ namespace {
     jstr(j, "label", app.label);
     jstr(j, "selftest", app.selfTest);
     jstr(j, "cloud", Cloud::lastResult());
+    jstr(j, "test", app.testResult);
+    jstr(j, "last_cmd", app.lastCmd);
+    j += "\"test_running\":"; j += Tests::busy() ? "true" : "false"; j += ',';
     j += "\"calibrated\":"; j += app.soil.calibrated ? "true" : "false"; j += ',';
     j += "\"auto_clean\":"; j += app.autoClean ? "true" : "false"; j += ',';
     j += "\"wiper\":"; j += Cleaner::busy() ? "true" : "false"; j += ',';
