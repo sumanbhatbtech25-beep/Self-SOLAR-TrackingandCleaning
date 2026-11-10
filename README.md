@@ -185,7 +185,27 @@ Put the numbers in [`config.h`](firmware/solar_tracker/config.h).
 cp firmware/solar_tracker/secrets.example.h firmware/solar_tracker/secrets.h
 ```
 
-Edit `secrets.h` with your network (2.4 GHz), and optionally your ThingSpeak Channel ID, Write/Read API keys and TalkBack ID/key. The board uploads to ThingSpeak every 20 s in demo mode (2 min normally) and checks TalkBack for phone commands (`CLEAN`, `AUTOCLEAN_ON`, `AUTOCLEAN_OFF`, `SELF_TEST`, `CALIBRATE`, `TRACK_AUTO`, `PARK_FLAT`). Channel fields: 1 power (W), 2 current (mA), 3 light (mV), 4 cleanliness (%), 5 tilt (°), 6 panel temp (°C), 7 air temp (°C), 8 humidity (%); status = active faults. Without it the board starts its own hotspot, **SolarTracker-Setup** (password `solar1234`), and the dashboard is at `http://192.168.4.1`.
+Edit `secrets.h` with your network (2.4 GHz). Without it the board starts its own hotspot, **SolarTracker-Setup** (password `solar1234`), and the dashboard is at `http://192.168.4.1`.
+
+**ThingSpeak (optional, for the phone).** A ThingSpeak channel holds 8 fields, so the readings use two channels plus one TalkBack:
+
+| Field | LIVE channel (every 20 s demo / 2 min) | HEALTH channel (every 60 s demo / 5 min) |
+|---|---|---|
+| 1 | Power (W) | Panel temperature (°C), DS18B20 |
+| 2 | Panel voltage (V), INA219 | Air temperature (°C), DHT11 |
+| 3 | Panel current (mA), trusted sensor | Humidity (%), DHT11 |
+| 4 | Light (mV), photo transistor | 12 V supply (V) |
+| 5 | LDR pair A (0–4095, brighter = higher) | INA219 current (mA) |
+| 6 | LDR pair B | ACS712 current (mA) |
+| 7 | Tilt (° from flat) | Cleanliness, current only (%), Rule A |
+| 8 | Cleanliness (%), Rule B | Active faults (count) |
+| status | Fault codes, or `OK` | Mode, auto-clean, cleanings, last test, self-test, last command |
+
+Create both channels and a TalkBack (Apps → TalkBack), then put the IDs and keys in `secrets.h`. Empty keys switch that part off. After any phone command, test or cleaning, both channels upload again as soon as ThingSpeak allows (16 s), so the result shows up quickly. Usage is about 5,800 messages a day in demo mode, within the free plan.
+
+**Phone commands (TalkBack).** `CLEAN`, `STOP`, `SENSOR_TEST`, `TILT_TEST`, `WIPER_TEST`, `SELF_TEST`, `FULL_TEST`, `CALIBRATE`, `AUTOCLEAN_ON`, `AUTOCLEAN_OFF`, `TRACK_AUTO`, `PARK_FLAT`, `UPLOAD_NOW`, `REBOOT`. Any other text runs as a Serial command, e.g. `tilt 20` or `label E2_s1`. The rig checks every 5 s (30 s in normal mode).
+
+**Phone page.** [`docs/phone/index.html`](docs/phone/index.html) shows both channels, a power sparkline, and buttons for every command and test. Open it on the phone, type the channel IDs, read keys and TalkBack key once under Settings (stored only in that browser), and add it to the home screen.
 
 ### 5. Build and flash
 
@@ -224,13 +244,20 @@ curl -X POST "http://solar-tracker.local/api/cmd?c=clean"
 |---|---|
 | `label <name>` | Tags every following CSV line, e.g. `label E2_light_s1` |
 | `mark <event>` | Tags the next CSV line once, e.g. `mark inject_ldr` |
-| `clean` | Run one wiper cycle |
+| `clean` | Run one wiper cycle (the panel is levelled first, then tracking resumes) |
 | `auto on` / `auto off` | Automatic cleaning when dust is confirmed (off by default) |
 | `calibrate` | Store the clean-panel baseline |
 | `selftest` | Relay self-test of both current sensors |
 | `mode auto` / `mode fixed [deg]` | Tracking on / tilt held (flat by default) |
 | `tilt <deg>` | Manual tilt from flat (−60 to 60) |
 | `wiper <deg>` | Move the wiper servo (testing) |
+| `test sensors` | Check every sensor once: INA219, ACS712, photo transistor, LDR pairs, DS18B20, DHT11, supply |
+| `test tilt` | Slew to +limit, −limit and flat; the LDR balance must change between the ends |
+| `test wiper` | One wiper pass |
+| `test full` | Sensors, relay self-test, tilt and wiper in a row (~40 s); one-line summary, details on Serial |
+| `stop` | End a test or cleaning: the foam returns to park, tracking resumes |
+| `upload` | Send both ThingSpeak channels now |
+| `reboot` | Restart the ESP32 |
 | `header` | Print the CSV header again |
 
 ## Fault diagnostics
@@ -299,18 +326,21 @@ python analysis/analyze.py --synthetic                         # pipeline test o
 │   ├── config.h                Pins, calibration, intervals, thresholds
 │   ├── sensors.*               INA219, ACS712, photo transistor, LDRs, DS18B20, DHT11, supply
 │   ├── relays.*                Relay 1 (panels / load) and relay 2 (servo power)
-│   ├── tracker.*               LDR-pair tracking, fixed/manual modes, tilt response check
-│   ├── cleaner.*               Non-blocking wiper sequence
+│   ├── tracker.*               LDR-pair tracking, smooth slewing, fixed/manual modes, tilt response check
+│   ├── cleaner.*               Non-blocking wiper sequence (levels the panel first)
+│   ├── tests.*                 Remote tests: sensors, tilt sweep, wiper, full
 │   ├── diagnostics.*           Dust ratios, sensor cross-check, self-test, fault rules
 │   ├── commands.*              Serial / dashboard commands
 │   ├── logger.*                1-second CSV log
 │   ├── web.*, dashboard_html.h Wi-Fi, dashboard, JSON API
+│   ├── cloud.*                 ThingSpeak upload (2 channels) and TalkBack phone commands
 │   └── app_state.*             Shared readings and settings
 ├── tests/calibration/          Servo angles and raw light readings
 ├── tests/                      Older single-block test sketches
 ├── experiments/PROTOCOL.md     How to run E1–E6
 ├── analysis/                   capture.py, analyze.py, synthetic test data generator
 ├── docs/                       Wiring, BOM, bring-up, diagnostics, schematic, 3D model
+├── docs/phone/index.html       Phone page: ThingSpeak readings, commands and tests
 └── platformio.ini
 ```
 
@@ -339,7 +369,8 @@ Progress is tracked here and in [`CHANGELOG.md`](CHANGELOG.md).
 - [ ] Measure real day and night energy use and update the energy budget
 
 ### Phase 3: Better data
-- [ ] Log to SD card or push to a cloud dashboard (ThingSpeak / Blynk / MQTT)
+- [x] Push every reading to ThingSpeak, with phone commands and remote tests
+- [ ] Log to SD card
 - [ ] Time-of-day aware tracking using NTP time and a sun-position model
 - [ ] Battery current sensing with a second INA219 for true state of charge
 - [ ] Measured tracked-vs-fixed energy gain report

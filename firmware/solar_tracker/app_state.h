@@ -44,6 +44,8 @@ struct AppState {
   String mark = "";            // one-shot event marker, printed on the next CSV line
   String faults = "";          // active fault codes, '|' separated
   String selfTest = "not run"; // last self-test result
+  String testResult = "none";  // last remote test (sensors / tilt / wiper / full)
+  String lastCmd = "";         // last command and its reply, shown on the phone
 };
 
 extern AppState app;

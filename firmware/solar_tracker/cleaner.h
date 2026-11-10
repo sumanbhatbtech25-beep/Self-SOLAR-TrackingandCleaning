@@ -1,12 +1,15 @@
 // cleaner.h — wiper servo: foam flap on a rod along the panel's centre line.
-// Parked straight up (off the panels). A cycle sweeps the left row, then the
-// right row, and returns to park, WIPER_PASSES times.
+// Parked straight up (off the panels). A cycle first brings the panels flat
+// (CLEAN_AT_FLAT), then sweeps the left row and the right row, returning to
+// park after each, WIPER_PASSES times. Tracking resumes afterwards.
 #pragma once
 #include <Arduino.h>
+#include "config.h"
 
 namespace Cleaner {
   void begin();
-  bool start();             // false if already running
+  bool start(int passes = WIPER_PASSES);  // false if already running
+  void stop();              // end the cycle: the foam returns to park
   void update();            // call every loop
   bool busy();
   uint32_t runCount();

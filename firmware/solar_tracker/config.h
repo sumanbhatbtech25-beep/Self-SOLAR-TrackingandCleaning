@@ -42,6 +42,8 @@ constexpr int  WIPER_LEFT_DEG    = 10;    // foam pressing on the left row
 constexpr int  WIPER_RIGHT_DEG   = 170;   // foam pressing on the right row
 constexpr int  WIPER_PASSES      = 2;
 constexpr uint32_t WIPER_STEP_MS = 15;    // ms per degree: higher = slower sweep
+constexpr bool CLEAN_AT_FLAT     = true;  // wiper is on a fixed post: level the panels before wiping
+constexpr uint32_t TILT_SLEW_MS  = 20;    // ms per degree for every tilt move (no sudden jerks)
 
 // ---------------------------------------------------------------------------
 // Sensor scaling
@@ -73,7 +75,9 @@ constexpr uint32_t AUTO_CLEAN_GAP_MS    = DEMO_MODE ? 60000  : 7200000UL;
 constexpr uint32_t NIGHT_CONFIRM_MS     = 15UL * 60 * 1000;            // normal mode only
 constexpr uint32_t SELFTEST_EVERY_MS    = 24UL * 3600 * 1000;
 constexpr uint32_t SERVO_HOLD_MS        = 1000;   // normal mode: power stays on this long after a move
-constexpr uint32_t CLOUD_UPLOAD_MS      = DEMO_MODE ? 20000  : 120000; // ThingSpeak free plan: 15 s minimum
+constexpr uint32_t CLOUD_UPLOAD_MS      = DEMO_MODE ? 20000  : 120000; // live channel; ThingSpeak free plan: 15 s minimum
+constexpr uint32_t CLOUD_HEALTH_MS      = DEMO_MODE ? 60000  : 300000; // health channel (temperatures, sensors, status)
+constexpr uint32_t CLOUD_MIN_GAP_MS     = 16000;  // fastest re-upload of one channel after a phone command
 constexpr uint32_t CLOUD_TALKBACK_MS    = DEMO_MODE ? 5000   : 30000;  // how often phone commands are checked
 
 // ---------------------------------------------------------------------------
@@ -101,6 +105,10 @@ constexpr float HUMIDITY_HIGH          = 90.0f;
 constexpr float SUPPLY_LOW_V           = 11.0f;
 constexpr float SUPPLY_HIGH_V          = 14.0f;
 constexpr uint32_t FAULT_HOLD_MS       = 3000;   // most faults must persist this long
+
+// Remote tests (phone / dashboard / Serial "test ...")
+constexpr uint32_t TILT_TEST_SETTLE_MS = 1500;   // wait at each end of the tilt sweep before reading the LDRs
+constexpr float TILT_TEST_MIN_CHANGE   = 0.04f;  // LDR balance must change this much between the two ends
 
 // ---------------------------------------------------------------------------
 // Wi-Fi: put your network in secrets.h (copy secrets.example.h).
