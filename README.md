@@ -1,12 +1,12 @@
 # Solar Tracker ESP32
 
-**A low-cost smart solar panel prototype that follows the sun, cleans itself, stores its energy in a battery, measures its own output and tells you when something is wrong. Everything runs on a single ESP32.**
+**A low-cost smart solar panel prototype that follows the sun (or a torch), cleans itself, measures its own output with two cross-checked current sensors and tells you when something is wrong. Everything runs on a single ESP32.**
 
 ![Platform](https://img.shields.io/badge/platform-ESP32-E7352C)
 ![Framework](https://img.shields.io/badge/framework-Arduino-00979D)
 ![Build](https://img.shields.io/badge/build-PlatformIO%20%7C%20Arduino%20IDE-F5822A)
 ![Budget](https://img.shields.io/badge/budget-%E2%82%B93%2C040%E2%80%934%2C720-2C8553)
-![Status](https://img.shields.io/badge/status-prototype%20v0.2-D98A10)
+![Status](https://img.shields.io/badge/status-prototype%20v0.5-D98A10)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
 ---
@@ -21,6 +21,7 @@
 - [Dashboard and API](#dashboard-and-api)
 - [Fault diagnostics](#fault-diagnostics)
 - [Configuration](#configuration)
+- [Experiments and analysis](#experiments-and-analysis)
 - [Project structure](#project-structure)
 - [Roadmap](#roadmap)
 - [Safety](#safety)
@@ -30,13 +31,14 @@
 
 | Module | What it does | Hardware |
 |---|---|---|
-| **Solar tracking** | Single-axis east–west tracking. Two LDRs split by a shade wall; the panel turns toward the brighter side. Parks facing sunrise at night. | 2 × LDR, tilt servo |
-| **Self-cleaning** | Servo-driven wiper sweeps the glass on demand, or automatically when soiling is detected. | Wiper servo + rubber blade |
-| **Battery storage** | The panel charges a 12 V battery during the day; the battery runs the ESP32 and servos day and night. Low-battery protection and night-time deep sleep stretch the reserve to 2–3 cloudy days. | 12 V 7 Ah SLA, PWM charge controller, buck converter |
-| **Power monitoring** | Panel voltage, current and power, battery voltage and panel temperature. | INA219, battery divider, DS18B20 |
-| **Fault diagnostics** | 18 rule-based checks: open circuit, no charging, battery low/full/overcharged, overheating, servo stall, covered LDR, soiling and more. | Firmware |
-| **Wireless dashboard** | Live readings, power chart, diagnostics and controls at `http://solar-tracker.local`. Falls back to its own Wi-Fi access point. | ESP32 Wi-Fi |
-| **Data logging** | One CSV line per second over Serial, ready for analysis and future ML training. | USB |
+| **Solar tracking** | Single-axis tracking. Two LDR pairs on opposite edges of the panel board; the tilt servo turns towards the brighter pair until both match. Follows a torch in real time in demo mode. | 4 LDR modules, MG996R tilt servo |
+| **Self-cleaning** | A foam flap on a rod along the panel's centre line sweeps the left row, then the right row, and parks straight up. On demand, or automatically when dust is confirmed. | MG996R wiper servo |
+| **Power monitoring** | Panel voltage, current and power from two independent current sensors in series. | INA219, ACS712 |
+| **Light-referenced dust check** | Compares panel current with a photo-transistor light reference, so clouds and shade don't look like dust. | Photo transistor |
+| **Fault diagnostics** | 18 rule-based checks: sensor disagreement, missing sensors, disconnected panel or load, covered LDRs, unresponsive tilt, overheating, supply voltage, soiling. A relay self-test checks both current sensors against zero and a known load. | 2-channel relay, 4.4 Ω load |
+| **Temperatures** | Panel temperature (back of a panel) and air temperature and humidity (in the shade). | DS18B20, DHT11 |
+| **Wireless dashboard** | Live readings, faults and controls at `http://solar-tracker.local`. Falls back to its own Wi-Fi hotspot. | ESP32 Wi-Fi |
+| **Experiment logging** | One CSV line per second over Serial, with experiment labels and event marks, ready for `analysis/analyze.py`. | USB |
 
 **Design rule:** one ESP32, a DIY frame, low-cost sensors and simple rules. No expensive mechanical assemblies and no second microcontroller until the core prototype works.
 
@@ -53,86 +55,77 @@ To get live links: **Settings → Pages → Deploy from a branch → main / (roo
 
 ```mermaid
 flowchart LR
-    subgraph Energy
-        PV[Solar panel 10 W] -->|F1 1 A| INA[INA219<br/>panel current]
-        INA --> CC[PWM charge<br/>controller]
-        CC <-->|F2 5 A| BAT[12 V 7 Ah<br/>battery]
-        BAT --> BUCK[Buck 12→5 V]
+    subgraph Power
+        AD[12 V 2 A adapter] --> BA[Buck A 5 V]
+        AD -->|relay 2| BB[Buck B 6 V]
+    end
+    subgraph Panel line
+        PV[8 panels, 4S2P] --> ACS[ACS712] --> INA[INA219] -->|relay 1| LOAD[4.4 Ω load]
     end
     subgraph Sensors
-        LDR[LDR pair<br/>GPIO 34 / 35]
-        DS[DS18B20<br/>GPIO 4]
-        BS[Battery divider<br/>GPIO 32]
+        LDR[LDR pairs<br/>GPIO 34 / 35]
+        PT[Photo transistor<br/>GPIO 39]
+        TMP[DS18B20 + DHT11<br/>GPIO 4 / 23]
     end
     subgraph ESP32
         TR[Tracker]
-        DG[Diagnostics<br/>18 rules]
+        DG[Diagnostics<br/>18 rules + self-test]
         CL[Cleaner]
-        PW[Power manager<br/>sleep / cut-off]
-        WEB[Web server]
+        LOG[CSV logger]
+        WEB[Dashboard]
     end
-    BUCK -->|5 V| ESP32
-    BAT --> BS --> PW
+    BA -->|5 V| ESP32
     INA -->|I²C| DG
+    ACS -->|GPIO 36| DG
+    PT --> DG
+    TMP --> DG
     LDR --> TR -->|GPIO 18| TS[Tilt servo]
-    LDR --> DG
-    DS --> DG
-    BS --> DG
     DG -->|soiling| CL -->|GPIO 19| WS[Wiper servo]
+    BB --> TS
+    BB --> WS
+    DG --> LOG
     DG --> WEB <-->|Wi-Fi| PHONE[Phone or laptop]
 ```
 
 ### Control loop
 
-| Task | Interval | Logic |
-|---|---|---|
-| Tracking | 100 ms | `imbalance = (E − W) / (E + W)`. Above +0.04 → step 1° east. Below −0.04 → step 1° west. Otherwise hold. Travel limited to ±60°. |
-| Night park | 500 ms | Average LDR below 150 → walk back to the east limit, ready for sunrise. |
-| Sensors + diagnostics | 1 s | Read INA219, battery, DS18B20 and LDRs, evaluate all rules, log CSV. |
-| Auto-clean | 1 s | `SOILING` active for 1 min and last auto clean > 30 min ago → run the wiper. |
-| Wiper cycle | 12 ms steps | Two out-and-back sweeps (~4 s). Tracking pauses while the blade is on the glass. |
-| Night sleep | after 5 min parked in the dark | Deep sleep in 15-minute naps; each wake checks the light and sleeps again if still dark. |
-| Low-battery cut-off | battery < 11.8 V for 30 s | Deep sleep in 10-minute naps until the battery recovers above 12.3 V. |
+| Task | Demo | Normal | Logic |
+|---|---|---|---|
+| Tracking | 50 ms | 1 min | `imbalance = (A − B) / (A + B)`. Outside ±0.05 → step 1° (2° in demo when far off) towards the brighter pair; limit ±60°. |
+| Power, dust ratios, faults, CSV | 1 s | 1 s | Read INA219, ACS712 and photo transistor; compute Rule A and Rule B; evaluate faults; print one CSV line. |
+| Dust confirmation / auto-clean | 5 s | 5 min | Rule B below 0.80 on 3 checks in a row → `SOILING`; with auto-clean on, run the wiper (at most every 1 min / 2 h). |
+| Temperatures | 5 s | 2 min | DS18B20 (non-blocking) and DHT11. |
+| Wiper | 15 ms per degree | same | Left row → up → right row → up, 2 passes. Tracking pauses meanwhile. |
+| Self-test | on command | daily | Panels disconnected: both sensors ≈ 0 A, ACS712 re-zeroed, Voc measured. Then on the load: sensors agree, V ≈ I·R. |
 
 Everything is non-blocking, so the dashboard stays responsive while the panel moves or the wiper runs.
 
-### Energy budget
-
-| | Per sunny day |
-|---|---|
-| Harvest (10 W panel, Bengaluru, after losses) | ≈ 30–40 Wh |
-| Daytime use (ESP32 + Wi-Fi + servos, ≈ 1 W × 12 h) | ≈ 12 Wh |
-| Night use, asleep (≈ 0.12 W × 12 h) | ≈ 1.5 Wh |
-| Usable battery reserve (half of 84 Wh) | ≈ 42 Wh, about 3 days |
-
 ## Hardware
 
-| Component | Qty | Target cost |
-|---|---|---|
-| ESP32 development board (DevKit V1, 30-pin) | 1 | ₹300–450 |
-| INA219 power sensor | 1 | ₹90–150 |
-| LDRs, resistors and wiring | 2 | ₹50–100 |
-| DS18B20 waterproof temperature probe | 1 | ₹100–160 |
-| Solar panel, 10 W | 1 | ₹300–500 |
-| Servo for panel tilt (MG90S / SG90) | 1 | ₹100–180 |
-| Servo for wiper (SG90) | 1 | ₹100–180 |
-| DC motor and driver *(optional, not fitted yet)* | 1 | ₹150–250 |
-| Breadboard, wires and connectors | — | ₹150–250 |
-| DIY frame, rails and wiper blade | — | ₹250–400 |
-| Power supply and protection (buck converter, fuse, capacitor, divider) | — | ₹200–350 |
-| 12 V 7 Ah sealed lead-acid battery | 1 | ₹700–900 |
-| PWM solar charge controller, 10 A | 1 | ₹300–450 |
-| Battery fuse (5 A) and thicker wire | — | ₹100–150 |
-| Miscellaneous and shipping | — | ₹300–500 |
-| **Total (without DC motor)** | | **₹3,040–4,720** |
+| Component | Qty |
+|---|---|
+| ESP32 DevKit V1 (30-pin, WROOM) | 1 |
+| Solar panels 70 × 70 mm, wired 4 in series × 2 strings | 8 |
+| INA219 current/voltage sensor | 1 |
+| ACS712-05B current sensor | 1 |
+| LDR modules (VCC / GND / AO) | 4 |
+| Photo transistor | 1 |
+| DS18B20 waterproof probe | 1 |
+| DHT11 module | 1 |
+| MG996R servos (tilt and wiper) | 2 |
+| 2-channel 5 V relay module | 1 |
+| LM2596 buck converters (5.0 V and 6.0 V) | 2 |
+| 12 V 2 A adapter | 1 |
+| 22 Ω resistors (5 in parallel = 4.4 Ω load) | 5 |
+| Resistors for dividers (10 k, 21.3 k), capacitor 1000 µF, wires, frame | — |
 
-Full list with buying notes: [`docs/bom.md`](docs/bom.md).
+The earlier battery design (v0.2) is in [`docs/bom.md`](docs/bom.md) and [`docs/wiring.md`](docs/wiring.md).
 
 ## Wiring
 
 ![Wiring schematic](docs/images/wiring-schematic.svg)
 
-The diagram shows the **current build, set up for the demo**: a 12 V 2 A adapter powers everything, and the panels drive a 4.4 Ω test load through both current sensors. The text in `docs/wiring.md` still describes the earlier battery version and will be updated with the firmware.
+The diagram shows the **current build, set up for the demo**: a 12 V 2 A adapter powers everything, and the panels drive a 4.4 Ω test load through both current sensors. Firmware v0.5 matches this diagram; the text in `docs/wiring.md` still describes the earlier battery version.
 
 | ESP32 pin | Connects to |
 |---|---|
@@ -160,8 +153,8 @@ Complete 46-wire list, energy budget and troubleshooting: [`docs/wiring.md`](doc
 ### 1. Clone
 
 ```bash
-git clone https://github.com/<your-username>/solar-tracker-esp32.git
-cd solar-tracker-esp32
+git clone https://github.com/sumanbhatbtech25-beep/Self-SOLAR-TrackingandCleaning.git
+cd Self-SOLAR-TrackingandCleaning
 ```
 
 ### 2. Install the libraries
@@ -169,161 +162,156 @@ cd solar-tracker-esp32
 | Library | Author | Used for |
 |---|---|---|
 | ESP32Servo | Kevin Harrington (madhephaestus) | Both servos |
-| Adafruit INA219 | Adafruit | Power sensor (pulls in Adafruit BusIO) |
+| Adafruit INA219 | Adafruit | Current sensor 1 (pulls in Adafruit BusIO) |
 | OneWire | Paul Stoffregen | DS18B20 bus |
 | DallasTemperature | Miles Burton | DS18B20 readings |
+| DHT sensor library + Adafruit Unified Sensor | Adafruit | DHT11 |
 
-PlatformIO installs these automatically from `platformio.ini`. In the Arduino IDE, install them from **Library Manager**.
+PlatformIO installs these from `platformio.ini`. In the Arduino IDE, install them from **Library Manager**.
 
-### 3. Add your Wi-Fi
+### 3. Calibrate your rig
+
+Upload [`tests/calibration`](tests/calibration/calibration.ino), open the Serial Monitor (115200, Newline) and:
+
+1. Type `t<angle>` until the panels lie flat → `TILT_FLAT_DEG`.
+2. Type `w<angle>` to find the wiper's straight-up park, left-row and right-row angles → `WIPER_PARK_DEG`, `WIPER_LEFT_DEG`, `WIPER_RIGHT_DEG`.
+3. Shine a torch on one LDR pair. If its reading goes **down**, keep `LDR_LIGHT_LOWERS_READING = true`. Set `LDR_DARK_LEVEL` to about half the room-light light level.
+
+Put the numbers in [`config.h`](firmware/solar_tracker/config.h).
+
+### 4. Wi-Fi (optional)
 
 ```bash
 cp firmware/solar_tracker/secrets.example.h firmware/solar_tracker/secrets.h
 ```
 
-Edit `secrets.h` with your network name and password. It is git-ignored. If you skip this step, the board starts its own access point, **SolarTracker-Setup** (password `solar1234`), and the dashboard is at `http://192.168.4.1`.
+Edit `secrets.h` with your network. Without it the board starts its own hotspot, **SolarTracker-Setup** (password `solar1234`), and the dashboard is at `http://192.168.4.1`.
 
-### 4. Build and flash
+### 5. Build and flash
 
-**PlatformIO** (VS Code extension or CLI):
+**Arduino IDE 2.x:** install **esp32 by Espressif Systems**, open `firmware/solar_tracker/solar_tracker.ino`, select **ESP32 Dev Module**, Upload, Serial Monitor at **115200 baud** with **Newline**.
 
-```bash
-pio run -t upload
-pio device monitor
-```
+**PlatformIO:** `pio run -t upload` then `pio device monitor`.
 
-**Arduino IDE 2.x:**
+Power-up order: ESP32 on USB first, then the 12 V adapter. Never connect USB and the 5 V VIN wire at the same time unless your board has a USB protection diode.
 
-1. Install the **esp32 by Espressif Systems** board package.
-2. Open `firmware/solar_tracker/solar_tracker.ino`.
-3. Select **ESP32 Dev Module** and your port, then **Upload**.
-4. Open the Serial Monitor at **115200 baud**.
+### 6. First run
 
-> When uploading over USB, unplug the 5 V → VIN wire unless your board has a protection diode on its USB 5 V line.
-
-**No battery yet?** Power the 5 V rail from a 5 V adapter and set `BATTERY_ENABLED = false` in `config.h`. Everything else works the same.
-
-### 5. Bring up and calibrate
-
-Follow [`docs/bring-up.md`](docs/bring-up.md). It tests each block with the sketches in [`tests/`](tests), then calibrates the battery reading, tilt centre and direction, wiper angles and the clean-panel baseline.
+1. Type `help` in the Serial Monitor.
+2. Clean the panels, give them steady light and type `calibrate`.
+3. Type `selftest`: relay 1 clicks, and the result shows on the dashboard.
+4. Shine a torch from one side: the panel should turn towards it. If it turns away, set `TRACK_INVERT = true`.
+5. Type `clean` to run the wiper.
 
 ## Dashboard and API
 
-Open **`http://solar-tracker.local`** (or the IP printed on Serial). The page refreshes every 2 seconds and works offline, since everything is served by the ESP32.
-
-It shows panel voltage, current and power against expected power, battery voltage and charge, panel temperature, tilt, LDR readings and panel cleanliness. Below those are a 5-minute power chart, the active diagnostics and the event log. Controls cover cleaning, calibration, auto-clean and manual tilt.
-
-With night sleep on (the default), the dashboard goes offline after dark and comes back at sunrise.
+Open **`http://solar-tracker.local`** (or the IP printed on Serial). It refreshes every second and works offline.
 
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/` | Dashboard page |
-| `GET` | `/api/status` | All readings, battery, tracker state, findings and log as JSON |
-| `POST` | `/api/clean` | Start a cleaning cycle (`409` if one is running) |
-| `POST` | `/api/autoclean?on=1` | Turn auto-clean on (`on=0` for off) |
-| `POST` | `/api/calibrate` | Save the clean-panel baseline (`409` with a reason if conditions aren't right) |
-| `POST` | `/api/mode?m=auto` | Tracker mode: `auto` or `manual` |
-| `POST` | `/api/tilt?deg=-20` | Set tilt in degrees (−60 east to +60 west); switches to manual |
+| `GET` | `/api/status` | All readings, tracker state, soiling ratios, self-test result and active faults as JSON |
+| `POST` | `/api/cmd?c=<command>` | Run any Serial command, e.g. `c=clean`, `c=calibrate`, `c=mode%20fixed%200`, `c=label%20E2_light_s1` |
 
 ```bash
 curl http://solar-tracker.local/api/status
-curl -X POST http://solar-tracker.local/api/clean
+curl -X POST "http://solar-tracker.local/api/cmd?c=clean"
 ```
 
-<details>
-<summary>Sample <code>/api/status</code> response</summary>
+### Serial commands
 
-```json
-{
-  "uptime_s": 5321,
-  "voltage": 13.41, "current": 0.512, "power": 6.87,
-  "panel_temp": 41.3,
-  "battery_enabled": true, "battery_voltage": 13.16, "battery_percent": 100,
-  "battery_full": false, "night_sleep": true,
-  "ldr_east": 2810, "ldr_west": 2765, "imbalance": 0.008,
-  "tilt": -18, "mode": "auto", "state": "holding",
-  "wiper_busy": false, "clean_runs": 3, "auto_clean": true,
-  "calibrated": true, "expected_current": 0.538, "expected_power": 7.21,
-  "soiling_ratio": 0.95,
-  "worst": "ok",
-  "findings": [{"code": "OK", "sev": "ok", "msg": "No faults detected."}],
-  "log": ["01:28:40  Clean baseline updated", "01:28:30  Cleaning cycle finished"],
-  "rssi": -61
-}
-```
-`battery_percent` is a rough estimate from voltage and reads high while charging.
-</details>
+| Command | Effect |
+|---|---|
+| `label <name>` | Tags every following CSV line, e.g. `label E2_light_s1` |
+| `mark <event>` | Tags the next CSV line once, e.g. `mark inject_ldr` |
+| `clean` | Run one wiper cycle |
+| `auto on` / `auto off` | Automatic cleaning when dust is confirmed (off by default) |
+| `calibrate` | Store the clean-panel baseline |
+| `selftest` | Relay self-test of both current sensors |
+| `mode auto` / `mode fixed [deg]` | Tracking on / tilt held (flat by default) |
+| `tilt <deg>` | Manual tilt from flat (−60 to 60) |
+| `wiper <deg>` | Move the wiper servo (testing) |
+| `header` | Print the CSV header again |
 
 ## Fault diagnostics
 
-| Code | Severity | Triggered when |
-|---|---|---|
-| `BATTERY_HIGH` | Critical | Battery > 15.0 V (overcharging) |
-| `BATTERY_CRITICAL` | Critical | Battery < 11.8 V; low-battery sleep follows |
-| `OPEN_CIRCUIT` | Critical | Panel voltage > 19.5 V but current < 10 mA |
-| `NO_PANEL_VOLTAGE` | Critical | Bright light but panel voltage < 1 V |
-| `OVERHEAT` | Critical | Panel temperature > 60 °C |
-| `TILT_STALL` | Critical | Moving for 4 s without the LDR imbalance dropping |
-| `INA219_MISSING` | Critical | Power sensor not found at boot |
-| `BATTERY_LOW` | Warning | Battery < 12.0 V |
-| `BATTERY_SENSOR` | Warning | Battery divider reads < 5 V |
-| `NO_CHARGE` | Warning | Bright light, battery not full, but no charging current |
-| `SOILING` | Warning | Panel current < 80 % of expected for the current light |
-| `LDR_MISMATCH` | Warning | One LDR < 15 % of the other for 10 s in bright light |
-| `TEMP_SENSOR` | Warning | DS18B20 not responding |
-| `BATTERY_FULL` | Info | Battery ≥ 13.6 V; charging and soiling checks paused |
-| `AT_LIMIT` | Info | Sun beyond the ±60° tilt range |
-| `NIGHT` | Info | Too dark to track |
-| `LDR_SATURATED` | Info | LDRs maxed out; soiling check paused |
-| `NOT_CALIBRATED` | Info | No clean-panel baseline saved yet |
+| Code | Triggered when |
+|---|---|
+| `INA219_MISSING` | INA219 not answering on I²C; the ACS712 takes over |
+| `ACS712_FAULT` | ACS712 output out of range at GPIO 36 |
+| `CURRENT_SENSOR_MISMATCH` | INA219 and ACS712 differ by more than 0.1 A or 20 % (the light reference decides which to trust) |
+| `PANEL_DISCONNECTED` | Light present but panel voltage < 1 V |
+| `NO_CURRENT` | Panel voltage present but current < 10 mA |
+| `LDR_MISMATCH` | One LDR pair below 15 % of the other |
+| `TILT_NO_RESPONSE` | The tilt moved 12° towards the light but the imbalance didn't drop |
+| `PANEL_OVERHEAT` | Panel above 60 °C |
+| `PANEL_HOT_VS_AIR` | Panel more than 20 °C hotter than the air |
+| `TEMP_SENSOR` / `DHT_SENSOR` | DS18B20 / DHT11 not responding |
+| `HIGH_HUMIDITY` | Humidity above 90 % |
+| `SUPPLY_LOW` / `SUPPLY_HIGH` | 12 V supply below 11 V / above 14 V |
+| `SOILING` | Light-referenced ratio below 0.80 on 3 checks in a row |
+| `SELF_TEST_FAIL` | Last relay self-test failed |
+| `LIGHT_SATURATED` | Photo transistor at its ceiling; dust check paused |
+| `NOT_CALIBRATED` | No clean-panel baseline yet |
 
-How expected current is estimated, sleep behaviour and how to trigger each fault on purpose: [`docs/diagnostics.md`](docs/diagnostics.md).
+**Dust check:** after `calibrate`, the firmware stores *k = I / L* (current per mV of light). Each second it logs two ratios: **Rule A** = I / I₀ (current only) and **Rule B** = I / (k·L) (light-referenced). Only Rule B raises `SOILING`, because a cloud lowers both I and L together. Cleaning does **not** re-calibrate automatically, so before/after comparisons stay honest.
 
 ## Configuration
 
-Every pin, threshold and timing value is in [`firmware/solar_tracker/config.h`](firmware/solar_tracker/config.h). The ones you are most likely to change:
+Every pin, calibration value, interval and threshold is in [`firmware/solar_tracker/config.h`](firmware/solar_tracker/config.h):
 
 | Setting | Default | Change it when |
 |---|---|---|
-| `BATTERY_ENABLED` | `true` | Bench testing from a 5 V adapter with no battery |
-| `BATTERY_CAL` | `1.00` | The battery reading differs from a multimeter |
-| `NIGHT_DEEP_SLEEP` | `true` | You want the dashboard online all night (costs ~10 Wh per night) |
-| `BATTERY_CUTOFF_V` / `BATTERY_RESUME_V` | `11.8` / `12.3` | Using a different battery chemistry |
-| `TILT_SERVO_CENTER` | `90` | The panel isn't flat at servo 90° |
-| `TILT_INVERT` | `false` | The panel turns away from the brighter LDR |
-| `TILT_LIMIT_DEG` | `60` | Your frame allows more or less travel |
-| `TRACK_DEADBAND` | `0.04` | The panel hunts back and forth (raise) or lags (lower) |
-| `WIPER_PARK_DEG` / `WIPER_END_DEG` | `0` / `170` | Matching the blade's real sweep |
-| `DIAG_SOILING_RATIO` | `0.80` | Auto-clean fires too often or too late |
-| `SERIAL_CSV_LOG` | `true` | You want a quiet Serial Monitor |
+| `DEMO_MODE` | `true` | `false` for outdoor running with energy-saving intervals |
+| `TILT_FLAT_DEG`, `TRACK_INVERT` | `90`, `false` | From the calibration sketch / the panel turns away from the light |
+| `WIPER_PARK_DEG`, `WIPER_LEFT_DEG`, `WIPER_RIGHT_DEG` | `90`, `10`, `170` | From the calibration sketch |
+| `LDR_LIGHT_LOWERS_READING`, `LDR_DARK_LEVEL` | `true`, `300` | From the calibration sketch |
+| `ACS712_DIVIDER`, `SUPPLY_DIVIDER` | `2.0`, `4.13` | You change those resistors |
+| `TEST_LOAD_OHMS` | `4.4` | You use a different load |
+| `SOILING_RATIO_WARN` | `0.80` | Dust alerts come too early or too late |
+
+| Interval | Demo | Normal |
+|---|---|---|
+| CSV log + power read | 1 s | 1 s |
+| Tracking step | 50 ms | 1 min |
+| Temperatures | 5 s | 2 min |
+| Dust check | 5 s | 5 min |
+| Auto-clean gap | 1 min | 2 h |
+
+## Experiments and analysis
+
+[`experiments/PROTOCOL.md`](experiments/PROTOCOL.md) gives step-by-step instructions for experiments E1–E6: baseline noise, dust levels, cloud test, cleaning, fault injection, and tracking vs fixed. It covers the labels and marks to type, and a notes sheet.
+
+```bash
+pip install -r analysis/requirements.txt
+python analysis/capture.py --port COM5 data/raw/session1.csv   # log while typing commands
+python analysis/analyze.py data/raw                            # results, tables and figures
+python analysis/analyze.py --synthetic                         # pipeline test on generated data only
+```
+
+`analyze.py` writes `analysis/output/summary.md`, a CSV and LaTeX table per experiment, and four figures (PNG + PDF). The `--synthetic` mode only checks that the pipeline works: its outputs are watermarked and must never be reported as results.
 
 ## Project structure
 
 ```
-solar-tracker-esp32/
 ├── firmware/solar_tracker/     Main firmware (Arduino sketch folder, PlatformIO src)
-│   ├── solar_tracker.ino       Setup, main loop, Wi-Fi, auto-clean, sleep, CSV logging
-│   ├── config.h                Pins, thresholds, timings
-│   ├── secrets.example.h       Wi-Fi template, copy to secrets.h
-│   ├── sensors.*               INA219, DS18B20, LDR reading
-│   ├── power.*                 Battery voltage, low-battery cut-off, deep sleep
-│   ├── tracker.*               LDR-based tilt control and stall detection
-│   ├── cleaner.*               Non-blocking wiper cycle
-│   ├── diagnostics.*           Rule engine and clean-panel baseline
-│   ├── web.*                   HTTP server and JSON API
-│   ├── dashboard_html.h        Dashboard page served by the ESP32
-│   └── app_state.*             Shared state and event log
-├── tests/                      One bring-up sketch per hardware block
-├── docs/
-│   ├── wiring.md               Pin map, wire list, energy budget, troubleshooting
-│   ├── bom.md                  Bill of materials and buying notes
-│   ├── bring-up.md             Step-by-step testing and calibration
-│   ├── diagnostics.md          Every rule and sleep mode explained
-│   ├── images/                 Schematic (add build photos here)
-│   └── interactive/            3D model and wiring sheet (open in a browser)
-├── platformio.ini
-├── CHANGELOG.md
-└── LICENSE
+│   ├── solar_tracker.ino       Setup and main loop with all timing
+│   ├── config.h                Pins, calibration, intervals, thresholds
+│   ├── sensors.*               INA219, ACS712, photo transistor, LDRs, DS18B20, DHT11, supply
+│   ├── relays.*                Relay 1 (panels / load) and relay 2 (servo power)
+│   ├── tracker.*               LDR-pair tracking, fixed/manual modes, tilt response check
+│   ├── cleaner.*               Non-blocking wiper sequence
+│   ├── diagnostics.*           Dust ratios, sensor cross-check, self-test, fault rules
+│   ├── commands.*              Serial / dashboard commands
+│   ├── logger.*                1-second CSV log
+│   ├── web.*, dashboard_html.h Wi-Fi, dashboard, JSON API
+│   └── app_state.*             Shared readings and settings
+├── tests/calibration/          Servo angles and raw light readings
+├── tests/                      Older single-block test sketches
+├── experiments/PROTOCOL.md     How to run E1–E6
+├── analysis/                   capture.py, analyze.py, synthetic test data generator
+├── docs/                       Wiring, BOM, bring-up, diagnostics, schematic, 3D model
+└── platformio.ini
 ```
 
 ## Roadmap
@@ -336,13 +324,14 @@ Progress is tracked here and in [`CHANGELOG.md`](CHANGELOG.md).
 - [x] Full wiring schematic and wire list
 - [x] Firmware: tracking, cleaning, monitoring, diagnostics, dashboard
 - [x] Bring-up test sketches
-- [ ] Build the DIY frame and mount the panel
-- [ ] Wire and bring up on the bench
-- [ ] Calibrate tilt, wiper and clean baseline outdoors
-- [ ] Log a full day of data and compare tracked vs. fixed output
+- [x] Build the DIY frame and mount the panels
+- [x] Wire and bring up on the bench
+- [x] Firmware v0.5 for the as-built rig, with experiment logging and analysis pipeline
+- [ ] Calibrate tilt, wiper and clean baseline (`tests/calibration`)
+- [ ] Run experiments E1–E6 ([protocol](experiments/PROTOCOL.md)) and add the results to the paper
 - [ ] Add build photos and a demo video
 
-### Phase 2: Battery storage (designed in v0.2)
+### Phase 2: Battery storage (designed in v0.2; demo runs from an adapter)
 - [x] Battery, charge controller and buck converter in the design, wiring and 3D model
 - [x] Firmware: battery monitoring, low-battery cut-off, night deep sleep
 - [x] Battery-aware diagnostics (full, low, overcharge, no charge)

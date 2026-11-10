@@ -1,116 +1,95 @@
 #include "tracker.h"
 #include "config.h"
+#include "app_state.h"
+#include "relays.h"
 #include "sensors.h"
 #include <ESP32Servo.h>
 
 namespace {
-  Servo tiltServo;
-  TrackerStatus st;
-  bool     paused      = false;
-  uint32_t lastStep    = 0;
-  int      nightCount  = 0;
-  bool     moving      = false;
-  uint32_t moveStart   = 0;
-  float    moveStartImbalance = 0;
+  Servo servo;
+  TrackStatus st;
+  uint32_t darkSince = 0;
+  // Stall check: where the current off-target run started.
+  bool  runActive = false;
+  int   runAngle0 = 0;
+  float runImb0 = 0;
 
-  void writeTilt(int deg) {
-    deg = constrain(deg, -TILT_LIMIT_DEG, TILT_LIMIT_DEG);
-    st.tiltDeg = deg;
-    int angle = TILT_SERVO_CENTER + (TILT_INVERT ? -deg : deg);
-    tiltServo.write(constrain(angle, 0, 180));
+  void moveTo(int angle) {
+    angle = constrain(angle, -TILT_RANGE_DEG, TILT_RANGE_DEG);
+    st.atLimit = (abs(angle) >= TILT_RANGE_DEG);
+    if (angle == st.angle) return;
+    if (!Relays::servoPower()) {          // normal mode: power up just before moving
+      Relays::setServoPower(true);
+      delay(150);
+    }
+    st.angle = angle;
+    servo.write(TILT_FLAT_DEG + angle);
+    st.lastMoveMs = millis();
   }
 
-  void stopMoving() {
-    moving = false;
-    st.stallSuspected = false;
+  void checkStall(float imb) {
+    if (fabsf(imb) < TRACK_DEADBAND) { runActive = false; st.stalled = false; return; }
+    if (!runActive) { runActive = true; runAngle0 = st.angle; runImb0 = imb; return; }
+    if (abs(st.angle - runAngle0) >= TILT_STALL_DEG) {
+      // The panel turned towards the light; a working tracker reduces the imbalance.
+      st.stalled = fabsf(imb) > TILT_STALL_SHRINK * fabsf(runImb0);
+      runAngle0 = st.angle;
+      runImb0 = imb;
+    }
   }
 }
 
 namespace Tracker {
 
-void begin(int initialTiltDeg) {
-  tiltServo.setPeriodHertz(50);
-  tiltServo.attach(PIN_SERVO_TILT, SERVO_MIN_US, SERVO_MAX_US);
-  writeTilt(initialTiltDeg);   // flat on power-up, previous position after deep sleep
+void begin() {
+  servo.setPeriodHertz(50);
+  servo.attach(PIN_SERVO_TILT, 500, 2500);
+  servo.write(TILT_FLAT_DEG);
+  st.angle = 0;
 }
 
-void update() {
-  uint32_t now = millis();
-  if (now - lastStep < TRACK_INTERVAL_MS) return;
-  lastStep = now;
+const TrackStatus &status() { return st; }
 
-  Sensors::readLdrs(st.ldrEast, st.ldrWest);
-  int sum = st.ldrEast + st.ldrWest;
-  st.imbalance = sum > 0 ? float(st.ldrEast - st.ldrWest) / float(sum) : 0.0f;
-
-  if (paused)                       { st.state = TrackerState::Paused; stopMoving(); return; }
-  if (st.mode == TrackerMode::Manual) { st.state = TrackerState::Manual; stopMoving(); return; }
-
-  // Night: slowly return to face sunrise so the morning starts aligned.
-  if (sum / 2 < DARK_THRESHOLD) {
-    st.state = TrackerState::NightPark;
-    stopMoving();
-    if (++nightCount >= NIGHT_PARK_DIVIDER) {
-      nightCount = 0;
-      if (st.tiltDeg > -TILT_LIMIT_DEG) writeTilt(st.tiltDeg - TILT_STEP_DEG);
-    }
-    return;
+const char *modeName(TrackMode m) {
+  switch (m) {
+    case TrackMode::Auto:  return "auto";
+    case TrackMode::Fixed: return "fixed";
+    default:               return "manual";
   }
-
-  int dir = 0;
-  if (st.imbalance >  TRACK_DEADBAND) dir = -1;   // east brighter -> turn east
-  if (st.imbalance < -TRACK_DEADBAND) dir = +1;   // west brighter -> turn west
-
-  if (dir == 0) { st.state = TrackerState::Holding; stopMoving(); return; }
-
-  int target = st.tiltDeg + dir * TILT_STEP_DEG;
-  if (target < -TILT_LIMIT_DEG || target > TILT_LIMIT_DEG) {
-    st.state = TrackerState::AtLimit;   // sun is lower than the frame can follow
-    stopMoving();
-    return;
-  }
-
-  // Stall check: with no position feedback, a servo that isn't turning shows up
-  // as an imbalance that refuses to shrink while we keep commanding moves.
-  float absImb = fabsf(st.imbalance);
-  if (!moving) {
-    moving = true; moveStart = now; moveStartImbalance = absImb;
-  } else if (now - moveStart >= DIAG_STALL_MS) {
-    st.stallSuspected = absImb > 0.8f * moveStartImbalance;
-    moveStart = now; moveStartImbalance = absImb;
-  }
-
-  writeTilt(target);
-  st.state = TrackerState::Tracking;
 }
 
-void setPaused(bool p) { paused = p; }
-
-void setMode(TrackerMode m) {
+void setMode(TrackMode m, int angle) {
   st.mode = m;
-  stopMoving();
+  runActive = false;
+  st.stalled = false;
+  if (m != TrackMode::Auto) moveTo(angle);
 }
 
-void setManualTilt(int deg) {
-  st.mode = TrackerMode::Manual;
-  stopMoving();
-  writeTilt(deg);
-}
+void update(bool paused) {
+  Sensors::readLdrs();
+  int a = app.s.ldrA, b = app.s.ldrB;
+  int sum = a + b;
+  st.imbalance = sum > 0 ? float(a - b) / sum : 0;
+  st.dark = sum < LDR_DARK_LEVEL;
 
-const TrackerStatus &status() { return st; }
+  if (st.mode != TrackMode::Auto || paused) return;
 
-const char *stateName(TrackerState s) {
-  switch (s) {
-    case TrackerState::Tracking:  return "tracking";
-    case TrackerState::Holding:   return "holding";
-    case TrackerState::AtLimit:   return "at_limit";
-    case TrackerState::NightPark: return "night";
-    case TrackerState::Manual:    return "manual";
-    case TrackerState::Paused:    return "paused";
+  if (st.dark) {
+    runActive = false;
+    if (!DEMO_MODE) {
+      if (darkSince == 0) darkSince = millis();
+      if (millis() - darkSince > NIGHT_CONFIRM_MS) moveTo(0);   // night: park flat
+    }
+    return;                                                     // demo: just hold still
   }
-  return "unknown";
-}
+  darkSince = 0;
 
-const char *modeName(TrackerMode m) { return m == TrackerMode::Auto ? "auto" : "manual"; }
+  checkStall(st.imbalance);
+  if (fabsf(st.imbalance) < TRACK_DEADBAND) return;
+  int step = (DEMO_MODE && fabsf(st.imbalance) > TRACK_FAST_ABOVE) ? 2 : 1;
+  int dir = (st.imbalance > 0) ? 1 : -1;
+  if (TRACK_INVERT) dir = -dir;
+  moveTo(st.angle + dir * step);
+}
 
 }  // namespace Tracker

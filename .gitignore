@@ -1,0 +1,8 @@
+# Wi-Fi password
+firmware/solar_tracker/secrets.h
+.pio/
+
+# Analysis: synthetic test runs are never committed
+analysis/synthetic_input/
+analysis/output_synthetic/
+__pycache__/

@@ -1,84 +1,68 @@
 #include "cleaner.h"
 #include "config.h"
+#include "relays.h"
 #include <ESP32Servo.h>
 
 namespace {
-  enum class Phase { Idle, Out, Back, Settle };
+  Servo servo;
+  bool running = false;
+  int current = WIPER_PARK_DEG;
+  int waypoint = 0;                 // index into the sequence below
+  uint32_t lastStep = 0;
+  uint32_t runs = 0;
+  uint32_t endMs = 0;
+  uint32_t testMs = 0;
 
-  Servo    wiper;
-  Phase    phase      = Phase::Idle;
-  int      pos        = WIPER_PARK_DEG;
-  int      passesDone = 0;
-  uint32_t lastStep   = 0;
-  uint32_t settleAt   = 0;
-  uint32_t runs       = 0;
-  uint32_t lastRun    = 0;
-
-  // Step pos toward target; returns true once it arrives.
-  bool stepToward(int target) {
-    if (pos < target) pos = min(pos + WIPER_STEP_DEG, target);
-    else if (pos > target) pos = max(pos - WIPER_STEP_DEG, target);
-    wiper.write(pos);
-    return pos == target;
-  }
+  // One pass = left row, back up, right row, back up.
+  const int SEQ[] = {WIPER_LEFT_DEG, WIPER_PARK_DEG, WIPER_RIGHT_DEG, WIPER_PARK_DEG};
+  constexpr int SEQ_LEN = sizeof(SEQ) / sizeof(SEQ[0]);
 }
 
 namespace Cleaner {
 
 void begin() {
-  wiper.setPeriodHertz(50);
-  // Park once at boot, then detach so the idle servo doesn't buzz or draw current.
-  wiper.attach(PIN_SERVO_WIPER, SERVO_MIN_US, SERVO_MAX_US);
-  wiper.write(WIPER_PARK_DEG);
-  delay(400);
-  wiper.detach();
+  servo.setPeriodHertz(50);
+  servo.attach(PIN_SERVO_WIPER, 500, 2500);
+  servo.write(WIPER_PARK_DEG);
 }
 
-bool start(const char *reason) {
-  if (phase != Phase::Idle) return false;
-  (void)reason;
-  wiper.attach(PIN_SERVO_WIPER, SERVO_MIN_US, SERVO_MAX_US);
-  pos = WIPER_PARK_DEG;
-  wiper.write(pos);
-  passesDone = 0;
-  phase = Phase::Out;
+bool busy()            { return running; }
+uint32_t runCount()    { return runs; }
+uint32_t lastEndMs()   { return endMs; }
+uint32_t lastTestMs()  { return testMs; }
+
+bool start() {
+  if (running) return false;
+  if (!Relays::servoPower()) { Relays::setServoPower(true); delay(150); }
+  running = true;
+  waypoint = 0;
   lastStep = millis();
   return true;
 }
 
-void update() {
-  if (phase == Phase::Idle) return;
-  uint32_t now = millis();
-
-  if (phase == Phase::Settle) {
-    if (now >= settleAt) {
-      wiper.detach();
-      phase = Phase::Idle;
-      runs++;
-      lastRun = now;
-    }
-    return;
-  }
-
-  if (now - lastStep < WIPER_STEP_MS) return;
-  lastStep = now;
-
-  if (phase == Phase::Out) {
-    if (stepToward(WIPER_END_DEG)) phase = Phase::Back;
-  } else if (phase == Phase::Back) {
-    if (stepToward(WIPER_PARK_DEG)) {
-      if (++passesDone >= WIPER_PASSES) {
-        phase = Phase::Settle;
-        settleAt = now + 300;   // let the blade reach park before detaching
-      } else {
-        phase = Phase::Out;
-      }
-    }
-  }
+void moveTest(int deg) {
+  if (running) return;
+  if (!Relays::servoPower()) { Relays::setServoPower(true); delay(150); }
+  current = constrain(deg, 0, 180);
+  servo.write(current);
+  testMs = millis();
 }
 
-bool busy()          { return phase != Phase::Idle; }
-uint32_t runCount()  { return runs; }
-uint32_t lastRunMs() { return lastRun; }
+void update() {
+  if (!running || millis() - lastStep < WIPER_STEP_MS) return;
+  lastStep = millis();
+  int target = SEQ[waypoint % SEQ_LEN];
+  if (current != target) {
+    current += (target > current) ? 1 : -1;     // 1 degree per step: slow, firm sweep
+    servo.write(current);
+    return;
+  }
+  waypoint++;
+  if (waypoint >= SEQ_LEN * WIPER_PASSES) {
+    running = false;
+    runs++;
+    endMs = millis();
+  }
+}
 
 }  // namespace Cleaner
