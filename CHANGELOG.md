@@ -8,6 +8,23 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 ### Planned
 - Build the DIY frame, fit the battery system and bring the hardware up on the bench (see README roadmap)
 
+## [0.5.0] - 2026-11-10
+
+### Changed
+- Firmware rewritten for the as-built demo rig: 12 V 2 A adapter, 8 panels (4S2P) into a 4.4 Ω test load, INA219 + ACS712 in series, 4 LDR modules as two pairs (GPIO 34/35), photo transistor light reference (GPIO 39), DS18B20 (GPIO 4), DHT11 (GPIO 23), relays on GPIO 25/26, tilt and wiper MG996R servos on GPIO 18/19
+- Wiper is now a foam flap on a rod: sweeps the left row, then the right row, and parks straight up
+- Dust check is light-referenced: Rule B = I / (k·L) raises `SOILING`; Rule A = I / I₀ is logged for comparison. Cleaning no longer re-calibrates automatically
+- `DEMO_MODE`: real-time torch tracking and short check intervals; normal mode uses energy-saving intervals and powers the servos only while moving
+
+### Added
+- Relay self-test (zero check and ACS712 re-zero with the panels disconnected, then sensor agreement and V = I·R on the load) and ACS712 zeroing at boot
+- 18 fault rules, including `CURRENT_SENSOR_MISMATCH` with light-referenced arbitration, `PANEL_DISCONNECTED`, `NO_CURRENT`, `TILT_NO_RESPONSE`, `PANEL_HOT_VS_AIR`, `SUPPLY_LOW/HIGH`
+- 1-second CSV log with experiment `label` and one-shot `mark` columns; Serial and dashboard commands
+- `tests/calibration` sketch, `experiments/PROTOCOL.md` (E1–E6), `analysis/` (capture, analysis with figures and LaTeX tables, synthetic pipeline test)
+
+### Removed
+- Battery, charge-controller and deep-sleep code (the demo runs from an adapter); `tests/battery_check`
+
 ## [0.2.0] - 2026-10-29
 
 ### Added
