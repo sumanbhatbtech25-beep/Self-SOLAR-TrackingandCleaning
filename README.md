@@ -179,13 +179,13 @@ Upload [`tests/calibration`](tests/calibration/calibration.ino), open the Serial
 
 Put the numbers in [`config.h`](firmware/solar_tracker/config.h).
 
-### 4. Wi-Fi (optional)
+### 4. Wi-Fi and ThingSpeak
 
 ```bash
 cp firmware/solar_tracker/secrets.example.h firmware/solar_tracker/secrets.h
 ```
 
-Edit `secrets.h` with your network. Without it the board starts its own hotspot, **SolarTracker-Setup** (password `solar1234`), and the dashboard is at `http://192.168.4.1`.
+Edit `secrets.h` with your network (2.4 GHz), and optionally your ThingSpeak Channel ID, Write/Read API keys and TalkBack ID/key. The board uploads to ThingSpeak every 20 s in demo mode (2 min normally) and checks TalkBack for phone commands (`CLEAN`, `AUTOCLEAN_ON`, `AUTOCLEAN_OFF`, `SELF_TEST`, `CALIBRATE`, `TRACK_AUTO`, `PARK_FLAT`). Channel fields: 1 power (W), 2 current (mA), 3 light (mV), 4 cleanliness (%), 5 tilt (°), 6 panel temp (°C), 7 air temp (°C), 8 humidity (%); status = active faults. Without it the board starts its own hotspot, **SolarTracker-Setup** (password `solar1234`), and the dashboard is at `http://192.168.4.1`.
 
 ### 5. Build and flash
 

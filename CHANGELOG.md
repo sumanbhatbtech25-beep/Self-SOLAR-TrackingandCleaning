@@ -8,6 +8,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 ### Planned
 - Build the DIY frame, fit the battery system and bring the hardware up on the bench (see README roadmap)
 
+## [0.5.1] - 2026-11-11
+
+### Added
+- ThingSpeak upload (8 fields + fault status) and TalkBack phone commands, in a background task on core 0 so tracking never stalls; keys go in `secrets.h`; cloud status on the dashboard
+
 ## [0.5.0] - 2026-11-10
 
 ### Changed

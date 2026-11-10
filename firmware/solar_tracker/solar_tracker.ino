@@ -17,6 +17,7 @@
 #include "commands.h"
 #include "logger.h"
 #include "web.h"
+#include "cloud.h"
 
 namespace {
   uint32_t tLog = 0, tTrack = 0, tTemp = 0, tSupply = 0, tSoil = 0, tSelfTest = 0;
@@ -69,12 +70,14 @@ void setup() {
                 app.s.inaOk ? "OK" : "MISSING", Sensors::acsZero(), app.s.photoMv, app.s.supplyV,
                 app.soil.calibrated ? "yes" : "no");
   Web::begin();
+  Cloud::begin();
   Commands::printHelp();
   Logger::printHeader();
 }
 
 void loop() {
   readSerial();
+  Cloud::handleCommands();
   Web::handle();
   Cleaner::update();
   Diagnostics::updateSelfTest();

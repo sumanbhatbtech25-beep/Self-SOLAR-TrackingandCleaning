@@ -73,6 +73,8 @@ constexpr uint32_t AUTO_CLEAN_GAP_MS    = DEMO_MODE ? 60000  : 7200000UL;
 constexpr uint32_t NIGHT_CONFIRM_MS     = 15UL * 60 * 1000;            // normal mode only
 constexpr uint32_t SELFTEST_EVERY_MS    = 24UL * 3600 * 1000;
 constexpr uint32_t SERVO_HOLD_MS        = 1000;   // normal mode: power stays on this long after a move
+constexpr uint32_t CLOUD_UPLOAD_MS      = DEMO_MODE ? 20000  : 120000; // ThingSpeak free plan: 15 s minimum
+constexpr uint32_t CLOUD_TALKBACK_MS    = DEMO_MODE ? 5000   : 30000;  // how often phone commands are checked
 
 // ---------------------------------------------------------------------------
 // Tracking

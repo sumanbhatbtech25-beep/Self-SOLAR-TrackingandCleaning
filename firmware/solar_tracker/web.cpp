@@ -7,6 +7,7 @@
 #include "diagnostics.h"
 #include "commands.h"
 #include "dashboard_html.h"
+#include "cloud.h"
 #include <WiFi.h>
 #include <WebServer.h>
 #include <ESPmDNS.h>
@@ -62,6 +63,7 @@ namespace {
     jstr(j, "trusted", app.trusted == Sensor::INA219 ? "INA219" : "ACS712");
     jstr(j, "label", app.label);
     jstr(j, "selftest", app.selfTest);
+    jstr(j, "cloud", Cloud::lastResult());
     j += "\"calibrated\":"; j += app.soil.calibrated ? "true" : "false"; j += ',';
     j += "\"auto_clean\":"; j += app.autoClean ? "true" : "false"; j += ',';
     j += "\"wiper\":"; j += Cleaner::busy() ? "true" : "false"; j += ',';

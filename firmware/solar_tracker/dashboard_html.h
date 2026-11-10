@@ -72,7 +72,7 @@ $('soil').textContent=s.calibrated?f(s.soil_light*100,0,' %'):'calibrate';$('lig
 $('tilt').textContent=s.tilt+'° '+s.mode;$('ldr').textContent=s.ldr_a+' / '+s.ldr_b;$('pt').textContent=f(s.panel_c,1,' °C');
 $('air').textContent=f(s.air_c,1,'°C')+' / '+f(s.humidity,0,'%');$('sup').textContent=f(s.supply_v,2,' V');$('tr').textContent=s.trusted;$('lab').textContent=s.label;
 autoOn=s.auto_clean;$('auto').textContent='Auto-clean: '+(autoOn?'ON':'off');
-$('st').textContent='Self-test: '+s.selftest+(s.wiper?'  ·  wiper running':'')+(s.demo?'  ·  demo mode':'');
+$('st').textContent='Self-test: '+s.selftest+(s.wiper?'  ·  wiper running':'')+(s.demo?'  ·  demo mode':'')+'  ·  ThingSpeak: '+s.cloud;
 $('faults').innerHTML=s.faults.length?s.faults.map(x=>'<li><b>'+x.code+'</b>'+x.msg+'</li>').join(''):'<li style="border-color:var(--ok)">none</li>';
 }catch(e){$('chip').textContent='offline';$('chip').style.background='var(--mut)'}}
 poll();setInterval(poll,1000);
